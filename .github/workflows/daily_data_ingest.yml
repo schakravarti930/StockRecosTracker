@@ -1,0 +1,56 @@
+name: Daily Data Ingestion
+
+on:
+  schedule:
+    # Run at 10:30 UTC daily (which is 16:00 IST, after Indian markets close)
+    - cron: '30 10 * * 1-5'
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  run-scripts:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        cache: 'pip'
+
+    - name: Install ODBC Drivers
+      run: |
+        sudo su
+        curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add -
+        curl https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list > /etc/apt/sources.list.d/mssql-release.list
+        exit
+        sudo apt-get update
+        sudo ACCEPT_EULA=Y apt-get install -y msodbcsql17
+        sudo apt-get install -y unixodbc-dev
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Ingest Stock Ideas
+      env:
+        DB_URL: mssql+pyodbc://${{ secrets.AZURE_SQL_USERNAME }}:${{ secrets.AZURE_SQL_PASSWORD }}@${{ secrets.AZURE_SQL_SERVER }}.database.windows.net/${{ secrets.AZURE_SQL_DATABASE }}?driver=ODBC+Driver+17+for+SQL+Server
+      run: python scripts/ingest_stock_ideas.py
+
+    - name: Sync NSE Tickers
+      env:
+        DB_URL: mssql+pyodbc://${{ secrets.AZURE_SQL_USERNAME }}:${{ secrets.AZURE_SQL_PASSWORD }}@${{ secrets.AZURE_SQL_SERVER }}.database.windows.net/${{ secrets.AZURE_SQL_DATABASE }}?driver=ODBC+Driver+17+for+SQL+Server
+      run: python scripts/sync_nseticker.py
+
+    - name: Update NSE Tickers
+      env:
+        DB_URL: mssql+pyodbc://${{ secrets.AZURE_SQL_USERNAME }}:${{ secrets.AZURE_SQL_PASSWORD }}@${{ secrets.AZURE_SQL_SERVER }}.database.windows.net/${{ secrets.AZURE_SQL_DATABASE }}?driver=ODBC+Driver+17+for+SQL+Server
+      run: python "scripts/update nse tickers.py"
+
+    - name: Daily Price Update
+      env:
+        DB_URL: mssql+pyodbc://${{ secrets.AZURE_SQL_USERNAME }}:${{ secrets.AZURE_SQL_PASSWORD }}@${{ secrets.AZURE_SQL_SERVER }}.database.windows.net/${{ secrets.AZURE_SQL_DATABASE }}?driver=ODBC+Driver+17+for+SQL+Server
+      run: python scripts/daily_price_updata_moneycontrol.py

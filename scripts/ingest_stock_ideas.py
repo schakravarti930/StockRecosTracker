@@ -137,12 +137,25 @@ def safe_float(val):
 def safe_str(val):
     return str(val) if val is not None else None
 
+import os
+from dotenv import load_dotenv
 
-engine = create_engine(
-    "mssql+pyodbc://@localhost\\SQLEXPRESS/StockAnalystTrack"
-    "?driver=ODBC+Driver+17+for+SQL+Server"
-    "&trusted_connection=yes"
-)
+load_dotenv()
+
+db_url = os.environ.get("DB_URL")
+if not db_url:
+    server = os.environ.get("AZURE_SQL_SERVER")
+    db = os.environ.get("AZURE_SQL_DATABASE")
+    user = os.environ.get("AZURE_SQL_USERNAME")
+    pwd = os.environ.get("AZURE_SQL_PASSWORD")
+    if all([server, db, user, pwd]):
+        db_url = f"mssql+pyodbc://{user}:{pwd}@{server}.database.windows.net/{db}?driver=ODBC+Driver+17+for+SQL+Server"
+    else:
+        raise ValueError("DB_URL or complete Azure SQL credentials environment variables are not set")
+
+
+
+engine = create_engine(db_url)
 
 Base.metadata.create_all(engine)
 
@@ -244,6 +257,9 @@ def insert_recommendations(api_response: dict):
 
 from sqlalchemy.exc import IntegrityError
 import requests
+import logging
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 def ingest_stock_ideas():
     session = Session()
@@ -251,7 +267,7 @@ def ingest_stock_ideas():
     try:
         # 🔹 1. High-water mark
         max_id = session.query(func.max(Recommendation.id)).scalar() or 0
-        print(f"High-water mark (max_id): {max_id}")
+        logging.info(f"High-water mark (max_id): {max_id}")
 
         start = 0
         page_size = 9
@@ -261,7 +277,7 @@ def ingest_stock_ideas():
 
         while not stop_fetching:
             # 🔹 2. Call paginated API (guarded)
-            print("calling api")
+            logging.info(f"Fetching API batch at start={start}")
             try:
                 response = requests.get(
                     base_api,
@@ -272,7 +288,7 @@ def ingest_stock_ideas():
                 response.raise_for_status()
                 payload = response.json()
             except requests.RequestException as e:
-                print(f"API error at start={start}: {e}")
+                logging.error(f"API error at start={start}: {e}")
                 break
 
             records = payload.get("data", [])
@@ -317,13 +333,13 @@ def ingest_stock_ideas():
 
                 except (KeyError, ValueError, TypeError) as e:
                     # Bad data — skip record, continue
-                    print(f"Skipping bad record ID={item.get('id')}: {e}")
+                    logging.warning(f"Skipping bad record ID={item.get('id')}: {e}")
                     session.rollback()
                     continue
 
                 except IntegrityError as e:
                     # Rare race condition — skip
-                    print(f"DB integrity error for ID={item.get('id')}")
+                    logging.warning(f"DB integrity error for ID={item.get('id')}")
                     session.rollback()
                     continue
 
@@ -332,12 +348,12 @@ def ingest_stock_ideas():
                 stop_fetching = True
 
         session.commit()
-        print(f"Inserted {inserted} new records")
+        logging.info(f"Inserted {inserted} new records")
 
     except Exception as e:
         # Catch anything unexpected
         session.rollback()
-        print(f"Fatal error in ingestion: {e}")
+        logging.error(f"Fatal error in ingestion: {e}")
 
     finally:
         session.close()
