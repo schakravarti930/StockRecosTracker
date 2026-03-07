@@ -34,20 +34,32 @@ jobs:
 
     - name: Ingest Stock Ideas
       env:
-        DB_URL: mssql+pyodbc://${{ secrets.AZURE_SQL_USERNAME }}:${{ secrets.AZURE_SQL_PASSWORD }}@${{ secrets.AZURE_SQL_SERVER }}.database.windows.net/${{ secrets.AZURE_SQL_DATABASE }}?driver=ODBC+Driver+17+for+SQL+Server
+        AZURE_SQL_SERVER: ${{ secrets.AZURE_SQL_SERVER }}
+        AZURE_SQL_DATABASE: ${{ secrets.AZURE_SQL_DATABASE }}
+        AZURE_SQL_USERNAME: ${{ secrets.AZURE_SQL_USERNAME }}
+        AZURE_SQL_PASSWORD: ${{ secrets.AZURE_SQL_PASSWORD }}
       run: python scripts/ingest_stock_ideas.py
 
     - name: Sync NSE Tickers
       env:
-        DB_URL: mssql+pyodbc://${{ secrets.AZURE_SQL_USERNAME }}:${{ secrets.AZURE_SQL_PASSWORD }}@${{ secrets.AZURE_SQL_SERVER }}.database.windows.net/${{ secrets.AZURE_SQL_DATABASE }}?driver=ODBC+Driver+17+for+SQL+Server
+        AZURE_SQL_SERVER: ${{ secrets.AZURE_SQL_SERVER }}
+        AZURE_SQL_DATABASE: ${{ secrets.AZURE_SQL_DATABASE }}
+        AZURE_SQL_USERNAME: ${{ secrets.AZURE_SQL_USERNAME }}
+        AZURE_SQL_PASSWORD: ${{ secrets.AZURE_SQL_PASSWORD }}
       run: python scripts/sync_nseticker.py
 
     - name: Update NSE Tickers
       env:
-        DB_URL: mssql+pyodbc://${{ secrets.AZURE_SQL_USERNAME }}:${{ secrets.AZURE_SQL_PASSWORD }}@${{ secrets.AZURE_SQL_SERVER }}.database.windows.net/${{ secrets.AZURE_SQL_DATABASE }}?driver=ODBC+Driver+17+for+SQL+Server
+        AZURE_SQL_SERVER: ${{ secrets.AZURE_SQL_SERVER }}
+        AZURE_SQL_DATABASE: ${{ secrets.AZURE_SQL_DATABASE }}
+        AZURE_SQL_USERNAME: ${{ secrets.AZURE_SQL_USERNAME }}
+        AZURE_SQL_PASSWORD: ${{ secrets.AZURE_SQL_PASSWORD }}
       run: python "scripts/update nse tickers.py"
 
     - name: Daily Price Update
       env:
-        DB_URL: mssql+pyodbc://${{ secrets.AZURE_SQL_USERNAME }}:${{ secrets.AZURE_SQL_PASSWORD }}@${{ secrets.AZURE_SQL_SERVER }}.database.windows.net/${{ secrets.AZURE_SQL_DATABASE }}?driver=ODBC+Driver+17+for+SQL+Server
+        AZURE_SQL_SERVER: ${{ secrets.AZURE_SQL_SERVER }}
+        AZURE_SQL_DATABASE: ${{ secrets.AZURE_SQL_DATABASE }}
+        AZURE_SQL_USERNAME: ${{ secrets.AZURE_SQL_USERNAME }}
+        AZURE_SQL_PASSWORD: ${{ secrets.AZURE_SQL_PASSWORD }}
       run: python scripts/daily_price_updata_moneycontrol.py

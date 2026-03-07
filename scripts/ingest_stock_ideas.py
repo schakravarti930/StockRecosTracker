@@ -137,6 +137,7 @@ def safe_str(val):
     return str(val) if val is not None else None
 
 import os
+import urllib.parse
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -148,7 +149,9 @@ if not db_url:
     user = os.environ.get("AZURE_SQL_USERNAME")
     pwd = os.environ.get("AZURE_SQL_PASSWORD")
     if all([server, db, user, pwd]):
-        db_url = f"mssql+pyodbc://{user}:{pwd}@{server}.database.windows.net/{db}?driver=ODBC+Driver+17+for+SQL+Server"
+        encoded_user = urllib.parse.quote_plus(user)
+        encoded_pwd = urllib.parse.quote_plus(pwd)
+        db_url = f"mssql+pyodbc://{encoded_user}:{encoded_pwd}@{server}.database.windows.net/{db}?driver=ODBC+Driver+17+for+SQL+Server&Encrypt=yes&TrustServerCertificate=no&Connection+Timeout=30"
     else:
         raise ValueError("DB_URL or complete Azure SQL credentials environment variables are not set")
 

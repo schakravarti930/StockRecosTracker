@@ -1,4 +1,5 @@
 import os
+import urllib.parse
 import logging
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
@@ -16,7 +17,9 @@ if not DB_URL:
     user = os.environ.get("AZURE_SQL_USERNAME")
     pwd = os.environ.get("AZURE_SQL_PASSWORD")
     if all([server, db, user, pwd]):
-        DB_URL = f"mssql+pyodbc://{user}:{pwd}@{server}.database.windows.net/{db}?driver=ODBC+Driver+17+for+SQL+Server"
+        encoded_user = urllib.parse.quote_plus(user)
+        encoded_pwd = urllib.parse.quote_plus(pwd)
+        DB_URL = f"mssql+pyodbc://{encoded_user}:{encoded_pwd}@{server}.database.windows.net/{db}?driver=ODBC+Driver+17+for+SQL+Server&Encrypt=yes&TrustServerCertificate=no&Connection+Timeout=30"
     else:
         raise ValueError("DB_URL or complete Azure SQL credentials environment variables are not set")
 
