@@ -8,7 +8,7 @@ on:
 
 jobs:
   run-scripts:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     
     steps:
     - name: Checkout repository
@@ -23,11 +23,9 @@ jobs:
     - name: Install ODBC Drivers
       run: |
         curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --yes --no-tty --dearmor -o /usr/share/keyrings/microsoft-prod.gpg
-        curl -fsSL https://packages.microsoft.com/ubuntu/$(lsb_release -rs)/prod/pool/main/m/msodbcsql17/msodbcsql17_17.10.6.1-1_amd64.deb -o msodbcsql17.deb
-        curl -fsSL https://packages.microsoft.com/ubuntu/$(lsb_release -rs)/prod/pool/main/b/bcp/mssql-tools_17.10.1.1-1_amd64.deb -o mssql-tools.deb
-        sudo ACCEPT_EULA=Y dpkg -i msodbcsql17.deb
-        sudo ACCEPT_EULA=Y dpkg -i mssql-tools.deb
-        sudo apt-get install -y unixodbc-dev
+        curl -fsSL https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list > /dev/null
+        sudo apt-get update
+        sudo ACCEPT_EULA=Y apt-get install -y msodbcsql17 unixodbc-dev
 
     - name: Install Python dependencies
       run: |
