@@ -155,7 +155,7 @@ def get_engine():
     url = (
         f"mssql+pyodbc://{username}:{password}"
         f"@{server}.database.windows.net:1433/{database}"
-        "?driver=ODBC+Driver+18+for+SQL+Server"
+        "?driver=ODBC+Driver+17+for+SQL+Server"
         "&Encrypt=yes&TrustServerCertificate=no&Connection+Timeout=30"
     )
     return create_engine(url)
