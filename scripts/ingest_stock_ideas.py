@@ -168,6 +168,11 @@ def map_to_recommendation(item):
         if key not in item or item[key] in (None, ""):
             raise ValueError(f"Missing critical field: {key}")
 
+    # Exclude records with recommended_price = 0 or null
+    rec_price = safe_float(item.get("recommended_price"))
+    if rec_price is None or rec_price == 0:
+        raise ValueError(f"Invalid recommended_price: {item.get('recommended_price')}")
+
     return Recommendation(
         id=safe_int(item.get("id")),
         organization=safe_str(item.get("organization")),
