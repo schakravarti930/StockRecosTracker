@@ -572,6 +572,10 @@ with tab2:
 
     diag_min = min(x_lo, y_lo)
     diag_max = max(x_hi, y_hi)
+    diag_span = diag_max - diag_min
+    mid = (diag_min + diag_max) / 2
+    outperformed_x = mid + (0.18 * diag_span)
+    underperformed_x = mid - (0.18 * diag_span)
 
     fig3.add_shape(
         type="line",
@@ -630,20 +634,40 @@ with tab2:
         **annotation_style,
     )
     fig3.add_annotation(
-        x=0.01,
-        y=0.90,
+        x=outperformed_x,
+        y=outperformed_x + (0.08 * diag_span),
+        xref="x",
+        yref="y",
         xanchor="left",
-        yanchor="top",
+        yanchor="bottom",
         text="Outperformed promise<br>(actual &gt; potential)",
-        **annotation_style,
+        showarrow=False,
+        align="left",
+        opacity=0.9,
+        bgcolor="rgba(0, 212, 170, 0.18)",
+        bordercolor="rgba(0, 212, 170, 0.45)",
+        borderwidth=1,
+        font=dict(size=10, color="#9EF5C6"),
+        xshift=6,
+        yshift=4,
     )
     fig3.add_annotation(
-        x=0.99,
-        y=0.90,
+        x=underperformed_x,
+        y=underperformed_x - (0.08 * diag_span),
+        xref="x",
+        yref="y",
         xanchor="right",
         yanchor="top",
         text="Underperformed promise<br>(actual &lt; potential)",
-        **annotation_style,
+        showarrow=False,
+        align="left",
+        opacity=0.9,
+        bgcolor="rgba(230, 57, 70, 0.18)",
+        bordercolor="rgba(230, 57, 70, 0.45)",
+        borderwidth=1,
+        font=dict(size=10, color="#FFB3C1"),
+        xshift=-6,
+        yshift=-4,
     )
     fig3.add_annotation(
         x=0.01,
