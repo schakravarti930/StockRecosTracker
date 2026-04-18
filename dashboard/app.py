@@ -792,17 +792,29 @@ with tab3:
     with c1:
         st.markdown('<div class="section-header">Target Upside vs Max Return Achieved</div>', unsafe_allow_html=True)
 
+        fig4_data = target_hit.copy()
+        fig4_data["target_hit_label"] = fig4_data["target_hit"].map({1: "Hit", 0: "Miss"})
+
         fig4 = px.scatter(
-            target_hit,
+            fig4_data,
             x="target_upside_pct",
             y="max_return_achieved",
-            color="target_hit",
-            color_discrete_map={1: "#00d4aa", 0: "#ff5577"},
-            hover_data=["stock_name", "organization", "recommend_date"],
+            color="target_hit_label",
+            color_discrete_map={"Hit": "#00d4aa", "Miss": "#ff5577"},
+            symbol="target_hit_label",
+            symbol_map={"Hit": "circle", "Miss": "x"},
+            category_orders={"target_hit_label": ["Hit", "Miss"]},
+            hover_data={
+                "stock_name": True,
+                "organization": True,
+                "recommend_date": True,
+                "target_hit_label": True,
+                "target_hit": False,
+            },
             labels={
                 "target_upside_pct":    "Target Upside %",
                 "max_return_achieved":  "Max Return Achieved %",
-                "target_hit":           "Target Hit"
+                "target_hit_label":     "Outcome",
             }
         )
         # Diagonal line: if max_return == target_upside, target was just hit
@@ -830,7 +842,7 @@ with tab3:
         )
         fig4.update_layout(**PLOTLY_THEME, height=360, margin=dict(l=10,r=10,t=30,b=10),
                            xaxis=dict(**AXIS_STYLE), yaxis=dict(**AXIS_STYLE),
-                           legend=dict(title="Hit", orientation="h", y=-0.15))
+                           legend=dict(title="Outcome", orientation="h", y=-0.15))
         st.plotly_chart(fig4, use_container_width=True)
 
     with c2:
