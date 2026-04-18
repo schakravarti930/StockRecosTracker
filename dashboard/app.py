@@ -142,12 +142,20 @@ PLOTLY_THEME = dict(
 
 AXIS_STYLE = dict(gridcolor="#1e1e2e", linecolor="#2a2a3e", tickcolor="#2a2a3e")
 
-# Colorblind-safe core (Okabe-Ito style), extended with high-separation colors.
-ORGANIZATION_PALETTE = [
-    "#0072B2", "#E69F00", "#009E73", "#D55E00", "#CC79A7", "#56B4E9", "#F0E442", "#000000",
-    "#EE7733", "#33BBEE", "#228833", "#AA3377", "#BBBBBB", "#4477AA", "#66CCEE", "#117733",
-    "#CCBB44", "#EE6677", "#AA4499", "#44AA99",
-]
+ORGANIZATION_PALETTE = {
+    "Motilal Oswal": "#00D4AA",
+    "ICICI Securities": "#7B9FFF",
+    "Prabhudas Lilladher": "#C77DFF",
+    "Emkay Global Financial Services": "#FF9E40",
+    "Nuvama": "#56B4E9",
+    "JM Financial": "#E69F00",
+    "HDFC Securities": "#009E73",
+    "Kotak Securities": "#D55E00",
+    "Axis Securities": "#CC79A7",
+    "Geojit Financial Services": "#F0E442",
+    "Anand Rathi": "#EE6677",
+}
+FALLBACK_ORGANIZATION_COLORS = px.colors.qualitative.Safe
 DEFAULT_SYMBOL = "circle"
 SYMBOL_CYCLE = ["diamond", "square", "x", "cross", "triangle-up", "triangle-down", "star", "pentagon"]
 
@@ -224,16 +232,19 @@ def normalize_organization_name(name):
 
 def build_firm_color_map(organizations):
     firms = sorted(pd.Series(organizations).dropna().unique().tolist())
-    firm_color_map = {
-        firm: ORGANIZATION_PALETTE[i % len(ORGANIZATION_PALETTE)]
-        for i, firm in enumerate(firms)
-    }
-    return firms, firm_color_map
+    known_map = ORGANIZATION_PALETTE.copy()
+    fallback_idx = 0
+    for firm in firms:
+        if firm not in known_map:
+            known_map[firm] = FALLBACK_ORGANIZATION_COLORS[fallback_idx % len(FALLBACK_ORGANIZATION_COLORS)]
+            fallback_idx += 1
+    return firms, known_map
 
 def build_overflow_symbol_map(plot_df, firms):
     symbol_map = {firm: DEFAULT_SYMBOL for firm in firms}
     if len(firms) > len(ORGANIZATION_PALETTE):
-        overflow_firms = firms[len(ORGANIZATION_PALETTE):]
+        configured_firms = list(ORGANIZATION_PALETTE.keys())
+        overflow_firms = [firm for firm in firms if firm not in configured_firms]
         high_frequency_firms = (
             plot_df["organization"].value_counts()
             .head(min(4, len(firms)))
@@ -471,6 +482,7 @@ with tab2:
         direction_filter = st.selectbox("Direction", ["All", "Correct", "Incorrect"])
 
     df = returns.copy()
+    df["organization"] = df["organization"].apply(normalize_organization_name)
     if org_filter != "All":
         df = df[df["organization"] == org_filter]
     if rec_filter != "All":
@@ -483,13 +495,22 @@ with tab2:
     st.markdown(f'<div class="section-header">{len(df)} Calls</div>', unsafe_allow_html=True)
 
     plot_df = df.copy()
+    plot_df["organization"] = plot_df["organization"].apply(normalize_organization_name)
     plot_df["analyst_recommendation"] = (
         plot_df["analyst_recommendation"]
         .astype("string")
         .str.strip()
         .str.title()
     )
-    tab2_firms, firm_color_map = build_firm_color_map(plot_df["organization"])
+    known_map = ORGANIZATION_PALETTE.copy()
+    missing_firms = sorted(
+        firm for firm in plot_df["organization"].dropna().unique().tolist()
+        if firm not in known_map
+    )
+    for idx, firm in enumerate(missing_firms):
+        known_map[firm] = FALLBACK_ORGANIZATION_COLORS[idx % len(FALLBACK_ORGANIZATION_COLORS)]
+
+    tab2_firms = sorted(plot_df["organization"].dropna().unique().tolist())
     symbol_map = build_overflow_symbol_map(plot_df, tab2_firms)
 
     # Scatter: potential vs actual return
@@ -498,7 +519,7 @@ with tab2:
         x="potential_returns",
         y="return_current",
         color="organization",
-        color_discrete_map=firm_color_map,
+        color_discrete_map=known_map,
         category_orders={"organization": tab2_firms},
         symbol="organization",
         symbol_map=symbol_map,
