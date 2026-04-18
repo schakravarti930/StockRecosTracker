@@ -439,13 +439,9 @@ with tab2:
         color="analyst_recommendation",
         symbol="organization",
         color_discrete_map={
-            "BUY": "#00ff00",
-            "Buy": "#00ff00",
-            "HOLD": "#ffff00",
-            "Hold": "#ffff00",
-            "SELL": "#ff0000",
-            "Sell": "#ff0000",
-            "sell": "#ff0000",
+            "Buy": "#00d4aa",
+            "Hold": "#ffd166",
+            "Sell": "#ff5577",
         },
         hover_data=["stock_name", "recommend_date", "recommended_price", "target_price"],
         labels={
