@@ -431,17 +431,25 @@ with tab2:
 
     st.markdown(f'<div class="section-header">{len(df)} Calls</div>', unsafe_allow_html=True)
 
+    plot_df = df.copy()
+    plot_df["analyst_recommendation"] = (
+        plot_df["analyst_recommendation"]
+        .astype("string")
+        .str.strip()
+        .str.title()
+    )
+
     # Scatter: potential vs actual return
     fig3 = px.scatter(
-        df,
+        plot_df,
         x="potential_returns",
         y="return_current",
         color="analyst_recommendation",
         symbol="organization",
         color_discrete_map={
-            "Buy": "#00d4aa",
-            "Hold": "#ffd166",
-            "Sell": "#ff5577",
+            "Buy": "#00ff00",
+            "Hold": "#ffff00",
+            "Sell": "#ff0000",
         },
         hover_data=["stock_name", "recommend_date", "recommended_price", "target_price"],
         labels={
