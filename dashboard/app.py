@@ -4,6 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from sqlalchemy import create_engine
 import os
+import re
 
 # ─────────────────────────────────────────
 # CONFIG
@@ -141,6 +142,15 @@ PLOTLY_THEME = dict(
 
 AXIS_STYLE = dict(gridcolor="#1e1e2e", linecolor="#2a2a3e", tickcolor="#2a2a3e")
 
+# Colorblind-safe core (Okabe-Ito style), extended with high-separation colors.
+ORGANIZATION_PALETTE = [
+    "#0072B2", "#E69F00", "#009E73", "#D55E00", "#CC79A7", "#56B4E9", "#F0E442", "#000000",
+    "#EE7733", "#33BBEE", "#228833", "#AA3377", "#BBBBBB", "#4477AA", "#66CCEE", "#117733",
+    "#CCBB44", "#EE6677", "#AA4499", "#44AA99",
+]
+DEFAULT_SYMBOL = "circle"
+SYMBOL_CYCLE = ["diamond", "square", "x", "cross", "triangle-up", "triangle-down", "star", "pentagon"]
+
 # ─────────────────────────────────────────
 # DB CONNECTION
 # ─────────────────────────────────────────
@@ -204,6 +214,37 @@ def fmt_num(val, decimals=0):
     if pd.isna(val): return "—"
     return f"{val:.{decimals}f}"
 
+def normalize_organization_name(name):
+    if pd.isna(name):
+        return name
+    normalized = re.sub(r"\s+", " ", str(name).strip())
+    if normalized.isupper() or normalized.islower():
+        normalized = normalized.title()
+    return normalized
+
+def build_firm_color_map(organizations):
+    firms = sorted(pd.Series(organizations).dropna().unique().tolist())
+    firm_color_map = {
+        firm: ORGANIZATION_PALETTE[i % len(ORGANIZATION_PALETTE)]
+        for i, firm in enumerate(firms)
+    }
+    return firms, firm_color_map
+
+def build_overflow_symbol_map(plot_df, firms):
+    symbol_map = {firm: DEFAULT_SYMBOL for firm in firms}
+    if len(firms) > len(ORGANIZATION_PALETTE):
+        overflow_firms = firms[len(ORGANIZATION_PALETTE):]
+        high_frequency_firms = (
+            plot_df["organization"].value_counts()
+            .head(min(4, len(firms)))
+            .index
+            .tolist()
+        )
+        emphasized_firms = sorted(set(overflow_firms).union(high_frequency_firms))
+        for idx, firm in enumerate(emphasized_firms):
+            symbol_map[firm] = SYMBOL_CYCLE[idx % len(SYMBOL_CYCLE)]
+    return symbol_map
+
 
 # ─────────────────────────────────────────
 # LOAD DATA
@@ -213,6 +254,15 @@ try:
     scorecard  = load_scorecard()
     returns    = load_returns()
     target_hit = load_target_hit()
+    for frame in (scorecard, returns, target_hit):
+        if "organization" in frame.columns:
+            frame["organization"] = frame["organization"].apply(normalize_organization_name)
+    ORGANIZATION_ORDER, FIRM_COLOR_MAP = build_firm_color_map(
+        pd.concat(
+            [returns["organization"], target_hit["organization"]],
+            ignore_index=True
+        )
+    )
     db_ok = True
 except Exception as e:
     st.error(f"Database connection failed: {e}")
@@ -388,7 +438,8 @@ with tab1:
         ret_filtered,
         x="organization", y="return_current",
         color="organization",
-        color_discrete_sequence=["#00d4aa","#ff5577","#ffb400","#7b9fff","#c77dff","#ff9e40","#00b4d8","#e8e8f0"],
+        color_discrete_map=FIRM_COLOR_MAP,
+        category_orders={"organization": ORGANIZATION_ORDER},
         labels={"organization": "", "return_current": "Return (%)"},
         hover_data=["stock_name"]
     )
@@ -438,6 +489,8 @@ with tab2:
         .str.strip()
         .str.title()
     )
+    tab2_firms, firm_color_map = build_firm_color_map(plot_df["organization"])
+    symbol_map = build_overflow_symbol_map(plot_df, tab2_firms)
 
     # Scatter: potential vs actual return
     fig3 = px.scatter(
@@ -445,6 +498,10 @@ with tab2:
         x="potential_returns",
         y="return_current",
         color="organization",
+        color_discrete_map=firm_color_map,
+        category_orders={"organization": tab2_firms},
+        symbol="organization",
+        symbol_map=symbol_map,
         hover_data=["stock_name", "recommend_date", "recommended_price", "target_price"],
         labels={
             "potential_returns": "Potential Return % (at recommendation)",
@@ -492,7 +549,17 @@ with tab2:
                         font=dict(size=11, color="#8ef0d5"))
 
     fig3.update_layout(**PLOTLY_THEME, height=420, margin=dict(l=10, r=10, t=40, b=10),
-                       xaxis=xaxis_cfg, yaxis=yaxis_cfg)
+                       xaxis=xaxis_cfg, yaxis=yaxis_cfg,
+                       legend=dict(
+                           title="Firm",
+                           orientation="v",
+                           yanchor="top",
+                           y=1,
+                           xanchor="left",
+                           x=1.02,
+                           traceorder="normal"
+                       ))
+    fig3.update_traces(marker=dict(opacity=0.88, line=dict(width=0.5, color="#0a0a0f")))
     st.plotly_chart(fig3, use_container_width=True)
 
     # Table
@@ -639,7 +706,8 @@ with tab3:
             hits_only, x="days_to_target", nbins=20,
             color="organization",
             labels={"days_to_target": "Days to Target", "count": "# Calls"},
-            color_discrete_sequence=["#00d4aa","#7b9fff","#ffb400","#ff5577","#c77dff"]
+            color_discrete_map=FIRM_COLOR_MAP,
+            category_orders={"organization": ORGANIZATION_ORDER}
         )
         fig6.update_layout(**PLOTLY_THEME, height=300, margin=dict(l=10,r=10,t=10,b=10),
                            xaxis=dict(**AXIS_STYLE), yaxis=dict(**AXIS_STYLE), bargap=0.1)
