@@ -451,40 +451,57 @@ with tab2:
 
     x_vals = df["potential_returns"].dropna()
     y_vals = df["return_current"].dropna()
+    xaxis_cfg = dict(**AXIS_STYLE)
+    yaxis_cfg = dict(**AXIS_STYLE)
+
     if not x_vals.empty and not y_vals.empty:
-        x_max_abs = max(abs(x_vals.min()), abs(x_vals.max()))
-        y_max_abs = max(abs(y_vals.min()), abs(y_vals.max()))
-        x_half = x_max_abs * 0.55
-        y_half = y_max_abs * 0.55
+        x_min, x_max = float(x_vals.min()), float(x_vals.max())
+        y_min, y_max = float(y_vals.min()), float(y_vals.max())
 
-        fig3.add_shape(
-            type="rect", x0=0, y0=0, x1=x_max_abs, y1=y_max_abs,
-            fillcolor="rgba(0, 212, 170, 0.07)", line_width=0, layer="below"
-        )
-        fig3.add_shape(
-            type="rect", x0=0, y0=-y_max_abs, x1=x_max_abs, y1=0,
-            fillcolor="rgba(255, 85, 119, 0.06)", line_width=0, layer="below"
-        )
-        fig3.add_shape(
-            type="rect", x0=-x_max_abs, y0=0, x1=0, y1=y_max_abs,
-            fillcolor="rgba(255, 193, 7, 0.06)", line_width=0, layer="below"
-        )
-        fig3.add_shape(
-            type="rect", x0=-x_max_abs, y0=-y_max_abs, x1=0, y1=0,
-            fillcolor="rgba(58, 58, 94, 0.08)", line_width=0, layer="below"
-        )
+        x_span = max(x_max - x_min, 1.0)
+        y_span = max(y_max - y_min, 1.0)
+        x_pad = max(x_span * 0.08, 5.0)
+        y_pad = max(y_span * 0.08, 3.0)
 
-        fig3.add_annotation(x=x_half, y=y_half, text="Top-right: promised & delivered",
-                            showarrow=False, font=dict(size=11, color="#8ef0d5"))
-        fig3.add_annotation(x=x_half, y=-y_half, text="Bottom-right: promised, underdelivered",
-                            showarrow=False, font=dict(size=11, color="#ff9bb0"))
-        fig3.add_annotation(x=-x_half, y=y_half, text="Top-left: cautious calls, strong outcome",
-                            showarrow=False, font=dict(size=11, color="#ffd778"))
-        fig3.add_annotation(x=-x_half, y=-y_half, text="Bottom-left: negative setup & outcome",
-                            showarrow=False, font=dict(size=11, color="#a1a6c9"))
+        x_lo, x_hi = x_min - x_pad, x_max + x_pad
+        y_lo, y_hi = y_min - y_pad, y_max + y_pad
+        xaxis_cfg["range"] = [x_lo, x_hi]
+        yaxis_cfg["range"] = [y_lo, y_hi]
+
+        x_left, x_right = min(x_lo, 0.0), max(x_hi, 0.0)
+        y_bottom, y_top = min(y_lo, 0.0), max(y_hi, 0.0)
+
+        if x_right > 0 and y_top > 0:
+            fig3.add_shape(
+                type="rect", x0=0, y0=0, x1=x_right, y1=y_top,
+                fillcolor="rgba(0, 212, 170, 0.07)", line_width=0, layer="below"
+            )
+            fig3.add_annotation(x=x_right * 0.55, y=y_top * 0.55, text="Top-right: promised & delivered",
+                                showarrow=False, font=dict(size=11, color="#8ef0d5"))
+        if x_right > 0 and y_bottom < 0:
+            fig3.add_shape(
+                type="rect", x0=0, y0=y_bottom, x1=x_right, y1=0,
+                fillcolor="rgba(255, 85, 119, 0.06)", line_width=0, layer="below"
+            )
+            fig3.add_annotation(x=x_right * 0.55, y=y_bottom * 0.55, text="Bottom-right: promised, underdelivered",
+                                showarrow=False, font=dict(size=11, color="#ff9bb0"))
+        if x_left < 0 and y_top > 0:
+            fig3.add_shape(
+                type="rect", x0=x_left, y0=0, x1=0, y1=y_top,
+                fillcolor="rgba(255, 193, 7, 0.06)", line_width=0, layer="below"
+            )
+            fig3.add_annotation(x=x_left * 0.55, y=y_top * 0.55, text="Top-left: cautious calls, strong outcome",
+                                showarrow=False, font=dict(size=11, color="#ffd778"))
+        if x_left < 0 and y_bottom < 0:
+            fig3.add_shape(
+                type="rect", x0=x_left, y0=y_bottom, x1=0, y1=0,
+                fillcolor="rgba(58, 58, 94, 0.08)", line_width=0, layer="below"
+            )
+            fig3.add_annotation(x=x_left * 0.55, y=y_bottom * 0.55, text="Bottom-left: negative setup & outcome",
+                                showarrow=False, font=dict(size=11, color="#a1a6c9"))
 
     fig3.update_layout(**PLOTLY_THEME, height=420, margin=dict(l=10, r=10, t=40, b=10),
-                       xaxis=dict(**AXIS_STYLE), yaxis=dict(**AXIS_STYLE))
+                       xaxis=xaxis_cfg, yaxis=yaxis_cfg)
     st.plotly_chart(fig3, use_container_width=True)
 
     # Table
