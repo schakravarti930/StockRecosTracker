@@ -442,6 +442,41 @@ with tab2:
     )
     fig3.add_hline(y=0, line_dash="dot", line_color="#3a3a5e", line_width=1)
     fig3.add_vline(x=0, line_dash="dot", line_color="#3a3a5e", line_width=1)
+
+    x_vals = df["potential_returns"].dropna()
+    y_vals = df["return_current"].dropna()
+    if not x_vals.empty and not y_vals.empty:
+        x_max_abs = max(abs(x_vals.min()), abs(x_vals.max()))
+        y_max_abs = max(abs(y_vals.min()), abs(y_vals.max()))
+        x_half = x_max_abs * 0.55
+        y_half = y_max_abs * 0.55
+
+        fig3.add_shape(
+            type="rect", x0=0, y0=0, x1=x_max_abs, y1=y_max_abs,
+            fillcolor="rgba(0, 212, 170, 0.07)", line_width=0, layer="below"
+        )
+        fig3.add_shape(
+            type="rect", x0=0, y0=-y_max_abs, x1=x_max_abs, y1=0,
+            fillcolor="rgba(255, 85, 119, 0.06)", line_width=0, layer="below"
+        )
+        fig3.add_shape(
+            type="rect", x0=-x_max_abs, y0=0, x1=0, y1=y_max_abs,
+            fillcolor="rgba(255, 193, 7, 0.06)", line_width=0, layer="below"
+        )
+        fig3.add_shape(
+            type="rect", x0=-x_max_abs, y0=-y_max_abs, x1=0, y1=0,
+            fillcolor="rgba(58, 58, 94, 0.08)", line_width=0, layer="below"
+        )
+
+        fig3.add_annotation(x=x_half, y=y_half, text="Top-right: promised & delivered",
+                            showarrow=False, font=dict(size=11, color="#8ef0d5"))
+        fig3.add_annotation(x=x_half, y=-y_half, text="Bottom-right: promised, underdelivered",
+                            showarrow=False, font=dict(size=11, color="#ff9bb0"))
+        fig3.add_annotation(x=-x_half, y=y_half, text="Top-left: cautious calls, strong outcome",
+                            showarrow=False, font=dict(size=11, color="#ffd778"))
+        fig3.add_annotation(x=-x_half, y=-y_half, text="Bottom-left: negative setup & outcome",
+                            showarrow=False, font=dict(size=11, color="#a1a6c9"))
+
     fig3.update_layout(**PLOTLY_THEME, height=420, margin=dict(l=10, r=10, t=40, b=10),
                        xaxis=dict(**AXIS_STYLE), yaxis=dict(**AXIS_STYLE))
     st.plotly_chart(fig3, use_container_width=True)
@@ -517,10 +552,29 @@ with tab3:
             }
         )
         # Diagonal line: if max_return == target_upside, target was just hit
-        max_val = target_hit["target_upside_pct"].max()
+        max_val = target_hit[["target_upside_pct", "max_return_achieved"]].max().max()
         fig4.add_shape(type="line", x0=0, y0=0, x1=max_val, y1=max_val,
                        line=dict(color="#3a3a5e", dash="dot", width=1))
-        fig4.update_layout(**PLOTLY_THEME, height=360, margin=dict(l=10,r=10,t=10,b=10),
+        fig4.add_annotation(
+            x=max_val * 0.58,
+            y=max_val * 0.58,
+            text="max return = target upside",
+            showarrow=False,
+            textangle=35,
+            font=dict(size=11, color="#8d93b8"),
+            bgcolor="rgba(18, 18, 26, 0.7)"
+        )
+        fig4.add_annotation(
+            x=0.02,
+            y=1.1,
+            xref="paper",
+            yref="paper",
+            text="Above line: exceeded target upside | Below line: never reached target upside",
+            showarrow=False,
+            align="left",
+            font=dict(size=11, color="#c8cbe0")
+        )
+        fig4.update_layout(**PLOTLY_THEME, height=360, margin=dict(l=10,r=10,t=30,b=10),
                            xaxis=dict(**AXIS_STYLE), yaxis=dict(**AXIS_STYLE),
                            legend=dict(title="Hit", orientation="h", y=-0.15))
         st.plotly_chart(fig4, use_container_width=True)
