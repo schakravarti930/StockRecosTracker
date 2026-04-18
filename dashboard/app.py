@@ -436,13 +436,23 @@ with tab2:
         df,
         x="potential_returns",
         y="return_current",
-        color="organization",
-        symbol="analyst_recommendation",
+        color="analyst_recommendation",
+        symbol="organization",
+        color_discrete_map={
+            "BUY": "#00ff00",
+            "Buy": "#00ff00",
+            "HOLD": "#ffff00",
+            "Hold": "#ffff00",
+            "SELL": "#ff0000",
+            "Sell": "#ff0000",
+            "sell": "#ff0000",
+        },
         hover_data=["stock_name", "recommend_date", "recommended_price", "target_price"],
         labels={
             "potential_returns": "Potential Return % (at recommendation)",
             "return_current":    "Actual Return % (current)",
-            "organization":      "Firm"
+            "organization":      "Firm",
+            "analyst_recommendation": "Recommendation",
         },
         title="Promised vs Actual Return"
     )
