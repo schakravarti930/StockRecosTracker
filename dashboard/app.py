@@ -237,6 +237,12 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+_, header_right = st.columns([5, 1])
+with header_right:
+    if st.button("Refresh data", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+
 # ─────────────────────────────────────────
 # TOP METRICS
 # ─────────────────────────────────────────
