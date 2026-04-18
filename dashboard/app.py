@@ -791,19 +791,48 @@ with tab3:
 
     with c1:
         st.markdown('<div class="section-header">Target Upside vs Max Return Achieved</div>', unsafe_allow_html=True)
+        show_marginals = st.checkbox("Show marginal distributions", value=False, key="fig4_show_marginals")
+        marginal_mode = "histogram" if show_marginals else None
+        target_scatter = target_hit.copy()
+        target_scatter["outcome_label"] = target_scatter["target_hit"].map({1: "Target Hit", 0: "Target Miss"})
 
         fig4 = px.scatter(
-            target_hit,
+            target_scatter,
             x="target_upside_pct",
             y="max_return_achieved",
             color="target_hit",
             color_discrete_map={1: "#00d4aa", 0: "#ff5577"},
-            hover_data=["stock_name", "organization", "recommend_date"],
+            marginal_x=marginal_mode,
+            marginal_y=marginal_mode,
+            custom_data=[
+                "stock_name",
+                "organization",
+                "recommend_date",
+                "target_upside_pct",
+                "max_return_achieved",
+                "outcome_label"
+            ],
             labels={
                 "target_upside_pct":    "Target Upside %",
                 "max_return_achieved":  "Max Return Achieved %",
                 "target_hit":           "Target Hit"
             }
+        )
+        fig4.update_traces(
+            marker=dict(
+                size=8,
+                opacity=0.7,
+                line=dict(width=0.8, color="#d9ddf7")
+            ),
+            hovertemplate=(
+                "Stock: %{customdata[0]}<br>"
+                "Firm: %{customdata[1]}<br>"
+                "Recommend Date: %{customdata[2]|%d %b %Y}<br>"
+                "Target Upside: %{customdata[3]:+.1f}%<br>"
+                "Max Return: %{customdata[4]:+.1f}%<br>"
+                "Outcome: %{customdata[5]}<extra></extra>"
+            ),
+            selector=dict(mode="markers")
         )
         # Diagonal line: if max_return == target_upside, target was just hit
         max_val = target_hit[["target_upside_pct", "max_return_achieved"]].max().max()
