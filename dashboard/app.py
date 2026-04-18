@@ -805,13 +805,39 @@ with tab3:
                 "target_hit":           "Target Hit"
             }
         )
-        # Diagonal line: if max_return == target_upside, target was just hit
-        max_val = target_hit[["target_upside_pct", "max_return_achieved"]].max().max()
-        fig4.add_shape(type="line", x0=0, y0=0, x1=max_val, y1=max_val,
-                       line=dict(color="#3a3a5e", dash="dot", width=1))
+        # Build a shared axis domain from both metrics and keep 1:1 scaling.
+        x_vals = target_hit["target_upside_pct"].dropna()
+        y_vals = target_hit["max_return_achieved"].dropna()
+        axis_min, axis_max = -10.0, 40.0
+
+        if not x_vals.empty or not y_vals.empty:
+            combined_vals = pd.concat([x_vals, y_vals], ignore_index=True)
+            if not combined_vals.empty:
+                raw_min = float(combined_vals.min())
+                raw_max = float(combined_vals.max())
+                raw_span = max(raw_max - raw_min, 1.0)
+                pad = max(raw_span * 0.08, 2.0)
+                axis_min = raw_min - pad
+                axis_max = raw_max + pad
+                if axis_min == axis_max:
+                    axis_min -= 1.0
+                    axis_max += 1.0
+
+        # Diagonal line: max_return == target_upside, drawn across the visible domain.
+        fig4.add_shape(
+            type="line",
+            x0=axis_min,
+            y0=axis_min,
+            x1=axis_max,
+            y1=axis_max,
+            line=dict(color="#3a3a5e", dash="dot", width=1)
+        )
+        line_span = axis_max - axis_min
+        line_label_x = min(axis_max - line_span * 0.06, axis_max - 0.5)
+        line_label_x = max(line_label_x, axis_min + line_span * 0.6)
         fig4.add_annotation(
-            x=max_val * 0.58,
-            y=max_val * 0.58,
+            x=line_label_x,
+            y=line_label_x,
             text="max return = target upside",
             showarrow=False,
             textangle=35,
@@ -828,9 +854,19 @@ with tab3:
             align="left",
             font=dict(size=11, color="#c8cbe0")
         )
-        fig4.update_layout(**PLOTLY_THEME, height=360, margin=dict(l=10,r=10,t=30,b=10),
-                           xaxis=dict(**AXIS_STYLE), yaxis=dict(**AXIS_STYLE),
-                           legend=dict(title="Hit", orientation="h", y=-0.15))
+        fig4.update_layout(
+            **PLOTLY_THEME,
+            height=360,
+            margin=dict(l=10, r=10, t=30, b=10),
+            xaxis=dict(**AXIS_STYLE, range=[axis_min, axis_max]),
+            yaxis=dict(
+                **AXIS_STYLE,
+                range=[axis_min, axis_max],
+                scaleanchor="x",
+                scaleratio=1,
+            ),
+            legend=dict(title="Hit", orientation="h", y=-0.15)
+        )
         st.plotly_chart(fig4, use_container_width=True)
 
     with c2:
