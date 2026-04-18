@@ -502,6 +502,11 @@ with tab2:
         .str.strip()
         .str.title()
     )
+    plot_df["promise_delta"] = plot_df["return_current"] - plot_df["potential_returns"]
+    plot_df["promise_result"] = plot_df["promise_delta"].apply(
+        lambda delta: "Outperformed" if pd.notna(delta) and delta > 0
+        else ("Underperformed" if pd.notna(delta) and delta < 0 else "Met")
+    )
     known_map = ORGANIZATION_PALETTE.copy()
     missing_firms = sorted(
         firm for firm in plot_df["organization"].dropna().unique().tolist()
@@ -523,11 +528,20 @@ with tab2:
         category_orders={"organization": tab2_firms},
         symbol="organization",
         symbol_map=symbol_map,
-        hover_data=["stock_name", "recommend_date", "recommended_price", "target_price"],
+        hover_data=[
+            "stock_name",
+            "recommend_date",
+            "recommended_price",
+            "target_price",
+            "promise_delta",
+            "promise_result",
+        ],
         labels={
             "potential_returns": "Potential Return % (at recommendation)",
             "return_current":    "Actual Return % (current)",
             "organization":      "Firm",
+            "promise_delta":     "Actual - Potential %",
+            "promise_result":    "Promise Outcome",
         },
         title="Promised vs Actual Return"
     )
@@ -556,6 +570,19 @@ with tab2:
         xaxis_cfg["range"] = [x_lo, x_hi]
         yaxis_cfg["range"] = [y_lo, y_hi]
 
+    diag_min = min(x_lo, y_lo)
+    diag_max = max(x_hi, y_hi)
+    diag_span = max(diag_max - diag_min, 1.0)
+
+    fig3.add_shape(
+        type="line",
+        x0=diag_min,
+        y0=diag_min,
+        x1=diag_max,
+        y1=diag_max,
+        line=dict(color="rgba(220, 220, 230, 0.8)", width=2, dash="dash"),
+    )
+
     fig3.add_vline(x=0, line_dash="dash", line_color="#6c728f", line_width=1)
     fig3.add_vline(x=15, line_dash="dash", line_color="#6c728f", line_width=1)
     fig3.add_vrect(x0=x_lo, x1=0, fillcolor="rgba(255, 99, 132, 0.07)", line_width=0, layer="below")
@@ -568,6 +595,48 @@ with tab2:
                         font=dict(size=11, color="#f6d37a"))
     fig3.add_annotation(x=(15 + x_hi) / 2, y=annotation_y, text="Buy (≥15%)", showarrow=False,
                         font=dict(size=11, color="#8ef0d5"))
+    fig3.add_annotation(
+        x=diag_max - (diag_span * 0.03),
+        y=diag_max - (diag_span * 0.03),
+        text="y = x (met promise)",
+        showarrow=False,
+        xanchor="right",
+        yanchor="bottom",
+        font=dict(size=10, color="#e8e8f0"),
+        bgcolor="rgba(20, 20, 30, 0.55)",
+    )
+    fig3.add_annotation(
+        x=diag_min + (diag_span * 0.35),
+        y=diag_min + (diag_span * 0.65),
+        text="Outperformed promise<br>(actual &gt; potential)",
+        showarrow=False,
+        font=dict(size=10, color="#9ef5dc"),
+        bgcolor="rgba(0, 212, 170, 0.14)",
+        bordercolor="rgba(0, 212, 170, 0.45)",
+        borderwidth=1,
+    )
+    fig3.add_annotation(
+        x=diag_min + (diag_span * 0.68),
+        y=diag_min + (diag_span * 0.38),
+        text="Underperformed promise<br>(actual &lt; potential)",
+        showarrow=False,
+        font=dict(size=10, color="#ffb3c2"),
+        bgcolor="rgba(255, 85, 119, 0.14)",
+        bordercolor="rgba(255, 85, 119, 0.45)",
+        borderwidth=1,
+    )
+    fig3.add_annotation(
+        x=min(-1.0, x_lo + (x_hi - x_lo) * 0.12),
+        y=y_hi - max((y_hi - y_lo) * 0.2, 2.0),
+        text="SELL zone note: Above line = fell less than predicted (weaker SELL call).",
+        showarrow=False,
+        xanchor="left",
+        align="left",
+        font=dict(size=9, color="#ffd9e2"),
+        bgcolor="rgba(60, 20, 30, 0.52)",
+        bordercolor="rgba(255, 85, 119, 0.4)",
+        borderwidth=1,
+    )
 
     fig3.update_layout(**PLOTLY_THEME, height=420, margin=dict(l=10, r=10, t=40, b=10),
                        xaxis=xaxis_cfg, yaxis=yaxis_cfg,
