@@ -140,6 +140,10 @@ PLOTLY_THEME = dict(
 )
 
 AXIS_STYLE = dict(gridcolor="#1e1e2e", linecolor="#2a2a3e", tickcolor="#2a2a3e")
+FIRM_COLOR_SEQUENCE = [
+    "#00d4aa", "#ff5577", "#ffb400", "#7b9fff", "#c77dff", "#ff9e40",
+    "#00b4d8", "#e8e8f0", "#80ed99", "#ff6b6b", "#ffd166", "#b8c0ff",
+]
 
 # ─────────────────────────────────────────
 # DB CONNECTION
@@ -203,6 +207,13 @@ def fmt_pct(val, decimals=1):
 def fmt_num(val, decimals=0):
     if pd.isna(val): return "—"
     return f"{val:.{decimals}f}"
+
+def build_firm_palette_map(firms):
+    ordered_firms = sorted([f for f in firms if pd.notna(f)])
+    return {
+        firm: FIRM_COLOR_SEQUENCE[idx % len(FIRM_COLOR_SEQUENCE)]
+        for idx, firm in enumerate(ordered_firms)
+    }
 
 
 # ─────────────────────────────────────────
@@ -283,6 +294,30 @@ with c5:
 
 st.markdown('<div class="warning-note">⚠ Data window is 2–3 months old. 90d/180d/365d returns will populate over time. Current return uses latest CMP.</div>', unsafe_allow_html=True)
 
+firm_call_counts = (
+    returns.groupby("organization")
+    .size()
+    .sort_values(ascending=False)
+)
+firm_color_map = build_firm_palette_map(firm_call_counts.index.tolist())
+
+st.markdown('<div class="section-header">Firm Scope</div>', unsafe_allow_html=True)
+scope_l, scope_r = st.columns([2, 3])
+with scope_l:
+    top_n_options = ["All"] + [5, 10, 15, 20]
+    top_n_firms = st.selectbox(
+        "Top firms by call count",
+        options=top_n_options,
+        index=1,
+        help="Limits firm-heavy charts to the most active firms by number of calls."
+    )
+with scope_r:
+    if top_n_firms == "All":
+        selected_firms = firm_call_counts.index.tolist()
+    else:
+        selected_firms = firm_call_counts.head(int(top_n_firms)).index.tolist()
+    st.caption(f"Using {len(selected_firms)} firms in scoped charts. Organization remains available in hover and firm filters.")
+
 # ─────────────────────────────────────────
 # TABS
 # ─────────────────────────────────────────
@@ -352,11 +387,7 @@ with tab1:
             x=sc_sorted["hit_rate_pct"],
             y=sc_sorted["organization"],
             orientation="h",
-            marker=dict(
-                color=sc_sorted["hit_rate_pct"],
-                colorscale=[[0, "#ff5577"], [0.5, "#ffb400"], [1, "#00d4aa"]],
-                cmin=0, cmax=100
-            ),
+            marker=dict(color=[firm_color_map.get(org, "#6b6b8a") for org in sc_sorted["organization"]]),
             text=sc_sorted["hit_rate_pct"].apply(lambda x: f"{x:.1f}%"),
             textposition="outside",
             textfont=dict(size=11)
@@ -376,15 +407,23 @@ with tab1:
 
     min_calls = st.slider("Minimum calls to include firm", 1, 20, 3, key="dist_slider")
     firms_filtered = scorecard[scorecard["total_calls"] >= min_calls]["organization"].tolist()
+    firms_filtered = [f for f in firms_filtered if f in selected_firms]
     ret_filtered = returns[returns["organization"].isin(firms_filtered)]
+    ret_filtered = ret_filtered.copy()
+    ret_filtered["direction_label"] = ret_filtered["direction_correct"].map({1: "Direction Hit", 0: "Direction Miss"})
+    ret_filtered["direction_label"] = ret_filtered["direction_label"].fillna("Unknown")
 
     fig2 = px.box(
         ret_filtered,
         x="organization", y="return_current",
-        color="organization",
-        color_discrete_sequence=["#00d4aa","#ff5577","#ffb400","#7b9fff","#c77dff","#ff9e40","#00b4d8","#e8e8f0"],
+        color="direction_label",
+        color_discrete_map={
+            "Direction Hit": "#00d4aa",
+            "Direction Miss": "#ff5577",
+            "Unknown": "#6b6b8a",
+        },
         labels={"organization": "", "return_current": "Return (%)"},
-        hover_data=["stock_name"]
+        hover_data=["organization", "stock_name", "analyst_recommendation"]
     )
     fig2.add_hline(y=0, line_dash="dot", line_color="#3a3a5e", line_width=1)
     fig2.update_layout(**PLOTLY_THEME, height=380, margin=dict(l=10, r=10, t=10, b=60),
@@ -403,7 +442,7 @@ with tab2:
     f1, f2, f3 = st.columns(3)
 
     with f1:
-        org_options = ["All"] + sorted(returns["organization"].unique().tolist())
+        org_options = ["All"] + selected_firms
         org_filter = st.selectbox("Firm", org_options)
 
     with f2:
@@ -414,6 +453,7 @@ with tab2:
         direction_filter = st.selectbox("Direction", ["All", "Correct", "Incorrect"])
 
     df = returns.copy()
+    df = df[df["organization"].isin(selected_firms)]
     if org_filter != "All":
         df = df[df["organization"] == org_filter]
     if rec_filter != "All":
@@ -423,6 +463,9 @@ with tab2:
     elif direction_filter == "Incorrect":
         df = df[df["direction_correct"] == 0]
 
+    df = df.copy()
+    df["direction_label"] = df["direction_correct"].map({1: "Direction Hit", 0: "Direction Miss"}).fillna("Unknown")
+
     st.markdown(f'<div class="section-header">{len(df)} Calls</div>', unsafe_allow_html=True)
 
     # Scatter: potential vs actual return
@@ -430,7 +473,12 @@ with tab2:
         df,
         x="potential_returns",
         y="return_current",
-        color="organization",
+        color="direction_label",
+        color_discrete_map={
+            "Direction Hit": "#00d4aa",
+            "Direction Miss": "#ff5577",
+            "Unknown": "#6b6b8a",
+        },
         symbol="analyst_recommendation",
         hover_data=["stock_name", "recommend_date", "recommended_price", "target_price"],
         labels={
@@ -565,13 +613,22 @@ with tab3:
     st.markdown('<div class="section-header">Days to Target (Hits Only)</div>', unsafe_allow_html=True)
 
     hits_only = target_hit[target_hit["target_hit"] == 1].dropna(subset=["days_to_target"])
+    hits_only = hits_only[hits_only["organization"].isin(selected_firms)].copy()
 
     if len(hits_only) > 0:
+        median_days = hits_only["days_to_target"].median()
+        hits_only["days_band"] = hits_only["days_to_target"].apply(
+            lambda v: "Faster than median" if v <= median_days else "Slower than median"
+        )
         fig6 = px.histogram(
             hits_only, x="days_to_target", nbins=20,
-            color="organization",
+            color="days_band",
             labels={"days_to_target": "Days to Target", "count": "# Calls"},
-            color_discrete_sequence=["#00d4aa","#7b9fff","#ffb400","#ff5577","#c77dff"]
+            color_discrete_map={
+                "Faster than median": "#00d4aa",
+                "Slower than median": "#7b9fff",
+            },
+            hover_data=["organization", "stock_name", "recommend_date"]
         )
         fig6.update_layout(**PLOTLY_THEME, height=300, margin=dict(l=10,r=10,t=10,b=10),
                            xaxis=dict(**AXIS_STYLE), yaxis=dict(**AXIS_STYLE), bargap=0.1)
