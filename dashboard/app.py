@@ -791,62 +791,56 @@ with tab3:
 
     with c1:
         st.markdown('<div class="section-header">Target Upside vs Max Return Achieved</div>', unsafe_allow_html=True)
+        show_marginals = st.checkbox("Show marginal distributions", value=False, key="fig4_show_marginals")
+        marginal_mode = "histogram" if show_marginals else None
+        target_scatter = target_hit.copy()
+        target_scatter["outcome_label"] = target_scatter["target_hit"].map({1: "Target Hit", 0: "Target Miss"})
 
         fig4_data = target_hit.copy()
         fig4_data["target_hit_label"] = fig4_data["target_hit"].map({1: "Hit", 0: "Miss"})
 
         fig4 = px.scatter(
-            fig4_data,
+            target_scatter,
             x="target_upside_pct",
             y="max_return_achieved",
-            color="target_hit_label",
-            color_discrete_map={"Hit": "#00d4aa", "Miss": "#ff5577"},
-            symbol="target_hit_label",
-            symbol_map={"Hit": "circle", "Miss": "x"},
-            category_orders={"target_hit_label": ["Hit", "Miss"]},
-            hover_data={
-                "stock_name": True,
-                "organization": True,
-                "recommend_date": True,
-                "target_hit_label": True,
-                "target_hit": False,
-            },
+            color="target_hit",
+            color_discrete_map={1: "#00d4aa", 0: "#ff5577"},
+            marginal_x=marginal_mode,
+            marginal_y=marginal_mode,
+            custom_data=[
+                "stock_name",
+                "organization",
+                "recommend_date",
+                "target_upside_pct",
+                "max_return_achieved",
+                "outcome_label"
+            ],
             labels={
                 "target_upside_pct":    "Target Upside %",
                 "max_return_achieved":  "Max Return Achieved %",
                 "target_hit_label":     "Outcome",
             }
         )
-        # Build a shared axis domain from both metrics and keep 1:1 scaling.
-        x_vals = target_hit["target_upside_pct"].dropna()
-        y_vals = target_hit["max_return_achieved"].dropna()
-        axis_min, axis_max = -10.0, 40.0
-
-        if not x_vals.empty or not y_vals.empty:
-            combined_vals = pd.concat([x_vals, y_vals], ignore_index=True)
-            if not combined_vals.empty:
-                raw_min = float(combined_vals.min())
-                raw_max = float(combined_vals.max())
-                raw_span = max(raw_max - raw_min, 1.0)
-                pad = max(raw_span * 0.08, 2.0)
-                axis_min = raw_min - pad
-                axis_max = raw_max + pad
-                if axis_min == axis_max:
-                    axis_min -= 1.0
-                    axis_max += 1.0
-
-        # Diagonal line: max_return == target_upside, drawn across the visible domain.
-        fig4.add_shape(
-            type="line",
-            x0=axis_min,
-            y0=axis_min,
-            x1=axis_max,
-            y1=axis_max,
-            line=dict(color="#3a3a5e", dash="dot", width=1)
+        fig4.update_traces(
+            marker=dict(
+                size=8,
+                opacity=0.7,
+                line=dict(width=0.8, color="#d9ddf7")
+            ),
+            hovertemplate=(
+                "Stock: %{customdata[0]}<br>"
+                "Firm: %{customdata[1]}<br>"
+                "Recommend Date: %{customdata[2]|%d %b %Y}<br>"
+                "Target Upside: %{customdata[3]:+.1f}%<br>"
+                "Max Return: %{customdata[4]:+.1f}%<br>"
+                "Outcome: %{customdata[5]}<extra></extra>"
+            ),
+            selector=dict(mode="markers")
         )
-        line_span = axis_max - axis_min
-        line_label_x = min(axis_max - line_span * 0.06, axis_max - 0.5)
-        line_label_x = max(line_label_x, axis_min + line_span * 0.6)
+        # Diagonal line: if max_return == target_upside, target was just hit
+        max_val = target_hit[["target_upside_pct", "max_return_achieved"]].max().max()
+        fig4.add_shape(type="line", x0=0, y0=0, x1=max_val, y1=max_val,
+                       line=dict(color="#3a3a5e", dash="dot", width=1))
         fig4.add_annotation(
             x=line_label_x,
             y=line_label_x,
