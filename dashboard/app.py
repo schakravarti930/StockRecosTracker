@@ -570,21 +570,10 @@ with tab2:
         xaxis_cfg["range"] = [x_lo, x_hi]
         yaxis_cfg["range"] = [y_lo, y_hi]
 
-    diag_min = min(x_lo, y_lo)
-    diag_max = max(x_hi, y_hi)
-    diag_span = diag_max - diag_min
-    mid = (diag_min + diag_max) / 2
-    outperformed_x = mid + (0.18 * diag_span)
-    underperformed_x = mid - (0.18 * diag_span)
-
-    fig3.add_shape(
-        type="line",
-        x0=diag_min,
-        y0=diag_min,
-        x1=diag_max,
-        y1=diag_max,
-        line=dict(color="rgba(220, 220, 230, 0.8)", width=2, dash="dash"),
-    )
+    # Visible y=x segment based on final axis ranges.
+    d0 = max(x_lo, y_lo)
+    d1 = min(x_hi, y_hi)
+    diag_visible = d1 > d0
 
     sell_hold_boundary = 0.0
     hold_buy_boundary = 15.0
@@ -659,42 +648,70 @@ with tab2:
         yanchor="bottom",
         **annotation_style,
     )
-    fig3.add_annotation(
-        x=outperformed_x,
-        y=outperformed_x + (0.08 * diag_span),
-        xref="x",
-        yref="y",
-        xanchor="left",
-        yanchor="bottom",
-        text="Outperformed promise<br>(actual &gt; potential)",
-        showarrow=False,
-        align="left",
-        opacity=0.9,
-        bgcolor="rgba(0, 212, 170, 0.18)",
-        bordercolor="rgba(0, 212, 170, 0.45)",
-        borderwidth=1,
-        font=dict(size=10, color="#9EF5C6"),
-        xshift=6,
-        yshift=4,
-    )
-    fig3.add_annotation(
-        x=underperformed_x,
-        y=underperformed_x - (0.08 * diag_span),
-        xref="x",
-        yref="y",
-        xanchor="right",
-        yanchor="top",
-        text="Underperformed promise<br>(actual &lt; potential)",
-        showarrow=False,
-        align="left",
-        opacity=0.9,
-        bgcolor="rgba(230, 57, 70, 0.18)",
-        bordercolor="rgba(230, 57, 70, 0.45)",
-        borderwidth=1,
-        font=dict(size=10, color="#FFB3C1"),
-        xshift=-6,
-        yshift=-4,
-    )
+    if diag_visible:
+        diag_span = d1 - d0
+        fig3.add_shape(
+            type="line",
+            x0=d0,
+            y0=d0,
+            x1=d1,
+            y1=d1,
+            line=dict(color="rgba(220, 220, 230, 0.8)", width=2, dash="dash"),
+        )
+
+        def _interp_point(t):
+            point = d0 + (t * diag_span)
+            return point, point
+
+        def _clamp(val, low, high):
+            return max(low, min(high, val))
+
+        offset = max(diag_span * 0.03, 0.6)
+        y_margin = max((y_hi - y_lo) * 0.03, 0.4)
+        y_min_safe = y_lo + y_margin
+        y_max_safe = y_hi - y_margin
+
+        out_x0, out_y0 = _interp_point(0.78)  # upper-right side of visible segment
+        out_y = _clamp(out_y0 + offset, y_min_safe, y_max_safe)
+        fig3.add_annotation(
+            x=out_x0 - offset,
+            y=out_y,
+            xref="x",
+            yref="y",
+            xanchor="left",
+            yanchor="bottom",
+            text="Outperformed promise<br>(actual &gt; potential)",
+            showarrow=False,
+            align="left",
+            opacity=0.9,
+            bgcolor="rgba(0, 212, 170, 0.18)",
+            bordercolor="rgba(0, 212, 170, 0.45)",
+            borderwidth=1,
+            font=dict(size=10, color="#9EF5C6"),
+            xshift=6,
+            yshift=4,
+        )
+
+        under_x0, under_y0 = _interp_point(0.22)  # lower-left side of visible segment
+        under_y = _clamp(under_y0 - offset, y_min_safe, y_max_safe)
+        fig3.add_annotation(
+            x=under_x0 + offset,
+            y=under_y,
+            xref="x",
+            yref="y",
+            xanchor="right",
+            yanchor="top",
+            text="Underperformed promise<br>(actual &lt; potential)",
+            showarrow=False,
+            align="left",
+            opacity=0.9,
+            bgcolor="rgba(230, 57, 70, 0.18)",
+            bordercolor="rgba(230, 57, 70, 0.45)",
+            borderwidth=1,
+            font=dict(size=10, color="#FFB3C1"),
+            xshift=-6,
+            yshift=-4,
+        )
     fig3.add_annotation(
         x=0.01,
         y=0.01,
