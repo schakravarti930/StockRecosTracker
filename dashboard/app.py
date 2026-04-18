@@ -796,6 +796,9 @@ with tab3:
         target_scatter = target_hit.copy()
         target_scatter["outcome_label"] = target_scatter["target_hit"].map({1: "Target Hit", 0: "Target Miss"})
 
+        fig4_data = target_hit.copy()
+        fig4_data["target_hit_label"] = fig4_data["target_hit"].map({1: "Hit", 0: "Miss"})
+
         fig4 = px.scatter(
             target_scatter,
             x="target_upside_pct",
@@ -815,7 +818,7 @@ with tab3:
             labels={
                 "target_upside_pct":    "Target Upside %",
                 "max_return_achieved":  "Max Return Achieved %",
-                "target_hit":           "Target Hit"
+                "target_hit_label":     "Outcome",
             }
         )
         fig4.update_traces(
@@ -839,8 +842,8 @@ with tab3:
         fig4.add_shape(type="line", x0=0, y0=0, x1=max_val, y1=max_val,
                        line=dict(color="#3a3a5e", dash="dot", width=1))
         fig4.add_annotation(
-            x=max_val * 0.58,
-            y=max_val * 0.58,
+            x=line_label_x,
+            y=line_label_x,
             text="max return = target upside",
             showarrow=False,
             textangle=35,
@@ -849,17 +852,52 @@ with tab3:
         )
         fig4.add_annotation(
             x=0.02,
-            y=1.1,
+            y=0.99,
             xref="paper",
             yref="paper",
-            text="Above line: exceeded target upside | Below line: never reached target upside",
+            text="Above line: Exceeded target",
             showarrow=False,
             align="left",
-            font=dict(size=11, color="#c8cbe0")
+            xanchor="left",
+            yanchor="top",
+            font=dict(size=10, color="#c8cbe0"),
+            bgcolor="rgba(18, 18, 26, 0.65)",
+            bordercolor="#3a3a5e",
+            borderwidth=1,
+            borderpad=4
+        )
+        fig4.add_annotation(
+            x=0.98,
+            y=0.03,
+            xref="paper",
+            yref="paper",
+            text="Below line: Missed target",
+            showarrow=False,
+            align="right",
+            xanchor="right",
+            yanchor="bottom",
+            font=dict(size=10, color="#c8cbe0"),
+            bgcolor="rgba(18, 18, 26, 0.65)",
+            bordercolor="#3a3a5e",
+            borderwidth=1,
+            borderpad=4
+        )
+        fig4.update_layout(
+            **PLOTLY_THEME,
+            height=360,
+            margin=dict(l=10, r=10, t=30, b=10),
+            xaxis=dict(**AXIS_STYLE, range=[axis_min, axis_max]),
+            yaxis=dict(
+                **AXIS_STYLE,
+                range=[axis_min, axis_max],
+                scaleanchor="x",
+                scaleratio=1,
+            ),
+            legend=dict(title="Hit", orientation="h", y=-0.15)
         )
         fig4.update_layout(**PLOTLY_THEME, height=360, margin=dict(l=10,r=10,t=30,b=10),
                            xaxis=dict(**AXIS_STYLE), yaxis=dict(**AXIS_STYLE),
-                           legend=dict(title="Hit", orientation="h", y=-0.15))
+                           legend=dict(title="Outcome", orientation="h", y=-0.15))
         st.plotly_chart(fig4, use_container_width=True)
 
     with c2:
