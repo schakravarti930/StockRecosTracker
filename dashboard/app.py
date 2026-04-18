@@ -586,11 +586,31 @@ with tab2:
         line=dict(color="rgba(220, 220, 230, 0.8)", width=2, dash="dash"),
     )
 
-    fig3.add_vline(x=0, line_dash="dash", line_color="#6c728f", line_width=1)
-    fig3.add_vline(x=15, line_dash="dash", line_color="#6c728f", line_width=1)
-    fig3.add_vrect(x0=x_lo, x1=0, fillcolor="rgba(255, 99, 132, 0.07)", line_width=0, layer="below")
-    fig3.add_vrect(x0=0, x1=15, fillcolor="rgba(255, 206, 86, 0.08)", line_width=0, layer="below")
-    fig3.add_vrect(x0=15, x1=x_hi, fillcolor="rgba(75, 192, 192, 0.08)", line_width=0, layer="below")
+    sell_hold_boundary = 0.0
+    hold_buy_boundary = 15.0
+    fig3.add_vline(x=sell_hold_boundary, line_dash="dash", line_color="#6c728f", line_width=1)
+    fig3.add_vline(x=hold_buy_boundary, line_dash="dash", line_color="#6c728f", line_width=1)
+    fig3.add_vrect(
+        x0=x_lo,
+        x1=min(sell_hold_boundary, x_hi),
+        fillcolor="rgba(255, 99, 132, 0.07)",
+        line_width=0,
+        layer="below",
+    )
+    fig3.add_vrect(
+        x0=max(sell_hold_boundary, x_lo),
+        x1=min(hold_buy_boundary, x_hi),
+        fillcolor="rgba(255, 206, 86, 0.08)",
+        line_width=0,
+        layer="below",
+    )
+    fig3.add_vrect(
+        x0=max(hold_buy_boundary, x_lo),
+        x1=x_hi,
+        fillcolor="rgba(75, 192, 192, 0.08)",
+        line_width=0,
+        layer="below",
+    )
     annotation_style = dict(
         showarrow=False,
         xref="paper",
@@ -601,30 +621,36 @@ with tab2:
         borderwidth=1,
         font=dict(size=10, color="#cfd3e6"),
     )
-    fig3.add_annotation(
-        x=0.01,
-        y=0.99,
-        xanchor="left",
-        yanchor="top",
-        text="Sell (&lt;0%)",
-        **annotation_style,
-    )
-    fig3.add_annotation(
-        x=0.50,
-        y=0.99,
+    zone_annotation_style = dict(
+        annotation_style,
+        xref="x",
+        yref="paper",
         xanchor="center",
         yanchor="top",
-        text="Hold (0–15%)",
-        **annotation_style,
     )
-    fig3.add_annotation(
-        x=0.99,
-        y=0.99,
-        xanchor="right",
-        yanchor="top",
-        text="Buy (≥15%)",
-        **annotation_style,
-    )
+    sell_segment = (x_lo, min(sell_hold_boundary, x_hi))
+    hold_segment = (max(sell_hold_boundary, x_lo), min(hold_buy_boundary, x_hi))
+    buy_segment = (max(hold_buy_boundary, x_lo), x_hi)
+
+    zone_labels = [
+        ("Sell (&lt;0%)", sell_segment, None),
+        ("Hold (0–15%)", hold_segment, dict(font=dict(size=9, color="#cfd3e6"), y=1.01, yanchor="bottom")),
+        ("Buy (≥15%)", buy_segment, None),
+    ]
+    for label_text, (seg_left, seg_right), overrides in zone_labels:
+        if seg_right <= seg_left:
+            continue
+        segment_width = seg_right - seg_left
+        if label_text.startswith("Hold") and segment_width < 2:
+            continue
+        annotation_props = dict(zone_annotation_style)
+        if label_text.startswith("Hold") and segment_width < 4:
+            annotation_props.update(overrides or {})
+        fig3.add_annotation(
+            x=(seg_left + seg_right) / 2,
+            text=label_text,
+            **dict(annotation_props, y=annotation_props.get("y", 0.98)),
+        )
     fig3.add_annotation(
         x=0.99,
         y=0.01,
