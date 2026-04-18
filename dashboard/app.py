@@ -572,7 +572,6 @@ with tab2:
 
     diag_min = min(x_lo, y_lo)
     diag_max = max(x_hi, y_hi)
-    diag_span = max(diag_max - diag_min, 1.0)
 
     fig3.add_shape(
         type="line",
@@ -588,57 +587,74 @@ with tab2:
     fig3.add_vrect(x0=x_lo, x1=0, fillcolor="rgba(255, 99, 132, 0.07)", line_width=0, layer="below")
     fig3.add_vrect(x0=0, x1=15, fillcolor="rgba(255, 206, 86, 0.08)", line_width=0, layer="below")
     fig3.add_vrect(x0=15, x1=x_hi, fillcolor="rgba(75, 192, 192, 0.08)", line_width=0, layer="below")
-    annotation_y = y_hi - max((y_hi - y_lo) * 0.06, 1.0)
-    fig3.add_annotation(x=(x_lo + 0) / 2, y=annotation_y, text="Sell (&lt;0%)", showarrow=False,
-                        font=dict(size=11, color="#ff9bb0"))
-    fig3.add_annotation(x=7.5, y=annotation_y, text="Hold (0–15%)", showarrow=False,
-                        font=dict(size=11, color="#f6d37a"))
-    fig3.add_annotation(x=(15 + x_hi) / 2, y=annotation_y, text="Buy (≥15%)", showarrow=False,
-                        font=dict(size=11, color="#8ef0d5"))
-    fig3.add_annotation(
-        x=diag_max - (diag_span * 0.03),
-        y=diag_max - (diag_span * 0.03),
-        text="y = x (met promise)",
+    annotation_style = dict(
         showarrow=False,
+        xref="paper",
+        yref="paper",
+        align="left",
+        bgcolor="rgba(18,18,26,0.75)",
+        bordercolor="#2a2a3e",
+        borderwidth=1,
+        font=dict(size=10, color="#cfd3e6"),
+    )
+    fig3.add_annotation(
+        x=0.01,
+        y=0.99,
+        xanchor="left",
+        yanchor="top",
+        text="Sell (&lt;0%)",
+        **annotation_style,
+    )
+    fig3.add_annotation(
+        x=0.50,
+        y=0.99,
+        xanchor="center",
+        yanchor="top",
+        text="Hold (0–15%)",
+        **annotation_style,
+    )
+    fig3.add_annotation(
+        x=0.99,
+        y=0.99,
+        xanchor="right",
+        yanchor="top",
+        text="Buy (≥15%)",
+        **annotation_style,
+    )
+    fig3.add_annotation(
+        x=0.99,
+        y=0.01,
+        text="y = x (met promise)",
         xanchor="right",
         yanchor="bottom",
-        font=dict(size=10, color="#e8e8f0"),
-        bgcolor="rgba(20, 20, 30, 0.55)",
+        **annotation_style,
     )
     fig3.add_annotation(
-        x=diag_min + (diag_span * 0.35),
-        y=diag_min + (diag_span * 0.65),
-        text="Outperformed promise<br>(actual &gt; potential)",
-        showarrow=False,
-        font=dict(size=10, color="#9ef5dc"),
-        bgcolor="rgba(0, 212, 170, 0.14)",
-        bordercolor="rgba(0, 212, 170, 0.45)",
-        borderwidth=1,
-    )
-    fig3.add_annotation(
-        x=diag_min + (diag_span * 0.68),
-        y=diag_min + (diag_span * 0.38),
-        text="Underperformed promise<br>(actual &lt; potential)",
-        showarrow=False,
-        font=dict(size=10, color="#ffb3c2"),
-        bgcolor="rgba(255, 85, 119, 0.14)",
-        bordercolor="rgba(255, 85, 119, 0.45)",
-        borderwidth=1,
-    )
-    fig3.add_annotation(
-        x=min(-1.0, x_lo + (x_hi - x_lo) * 0.12),
-        y=y_hi - max((y_hi - y_lo) * 0.2, 2.0),
-        text="SELL zone note: Above line = fell less than predicted (weaker SELL call).",
-        showarrow=False,
+        x=0.01,
+        y=0.90,
         xanchor="left",
-        align="left",
-        font=dict(size=9, color="#ffd9e2"),
-        bgcolor="rgba(60, 20, 30, 0.52)",
-        bordercolor="rgba(255, 85, 119, 0.4)",
-        borderwidth=1,
+        yanchor="top",
+        text="Outperformed promise<br>(actual &gt; potential)",
+        **annotation_style,
+    )
+    fig3.add_annotation(
+        x=0.99,
+        y=0.90,
+        xanchor="right",
+        yanchor="top",
+        text="Underperformed promise<br>(actual &lt; potential)",
+        **annotation_style,
+    )
+    fig3.add_annotation(
+        x=0.01,
+        y=0.01,
+        xanchor="left",
+        yanchor="bottom",
+        text="SELL zone:<br>Above line = weaker SELL call<br>(fell less than predicted)",
+        **annotation_style,
     )
 
-    fig3.update_layout(**PLOTLY_THEME, height=420, margin=dict(l=10, r=10, t=40, b=10),
+    fig3.update_layout(**PLOTLY_THEME, height=420, margin=dict(l=10, r=10, t=56, b=36),
                        xaxis=xaxis_cfg, yaxis=yaxis_cfg,
                        legend=dict(
                            title="Firm",
