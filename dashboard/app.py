@@ -846,13 +846,35 @@ with tab3:
         )
         fig4.add_annotation(
             x=0.02,
-            y=1.1,
+            y=0.99,
             xref="paper",
             yref="paper",
-            text="Above line: exceeded target upside | Below line: never reached target upside",
+            text="Above line: Exceeded target",
             showarrow=False,
             align="left",
-            font=dict(size=11, color="#c8cbe0")
+            xanchor="left",
+            yanchor="top",
+            font=dict(size=10, color="#c8cbe0"),
+            bgcolor="rgba(18, 18, 26, 0.65)",
+            bordercolor="#3a3a5e",
+            borderwidth=1,
+            borderpad=4
+        )
+        fig4.add_annotation(
+            x=0.98,
+            y=0.03,
+            xref="paper",
+            yref="paper",
+            text="Below line: Missed target",
+            showarrow=False,
+            align="right",
+            xanchor="right",
+            yanchor="bottom",
+            font=dict(size=10, color="#c8cbe0"),
+            bgcolor="rgba(18, 18, 26, 0.65)",
+            bordercolor="#3a3a5e",
+            borderwidth=1,
+            borderpad=4
         )
         fig4.update_layout(
             **PLOTLY_THEME,
