@@ -1081,7 +1081,6 @@ with tab4:
     stock_targets = target_hit[target_hit["stock_name"] == selected_stock].copy()
 
     stock_symbol = resolve_stock_symbol(selected_stock, returns)
-    stock_ohlc = dailyohlc[dailyohlc["symbol_key"] == str(stock_symbol).upper()].copy() if stock_symbol else pd.DataFrame()
 
     if len(stock_data) == 0:
         st.warning("No data found for this stock.")
@@ -1120,23 +1119,18 @@ with tab4:
                 <div class="metric-value">{n_firms}</div>
             </div>""", unsafe_allow_html=True)
 
-        ticker_col_candidates = ["nse_ticker_yfinance", "symbol", "ticker", "stock_ticker"]
-        ticker_col = next((col for col in ticker_col_candidates if col in stock_data.columns), None)
-        stock_symbol = (
-            stock_data[ticker_col].dropna().iloc[0]
-            if ticker_col and not stock_data[ticker_col].dropna().empty
-            else selected_stock
-        )
+        first_reco_date = pd.to_datetime(stock_data["recommend_date"]).min()
+        chart_start = first_reco_date - pd.Timedelta(days=30)
 
-        reco_dates = pd.to_datetime(stock_data["recommend_date"])
-        chart_start = reco_dates.min() - pd.Timedelta(days=30)
-
-        stock_prices = dailyohlc[dailyohlc["symbol_key"] == str(stock_symbol).upper()].copy()
-        if not stock_prices.empty:
+        if not stock_symbol:
+            st.warning(f"No symbol mapping found for {selected_stock}.")
+            stock_prices = pd.DataFrame()
+        else:
+            stock_prices = dailyohlc[dailyohlc["symbol_key"] == str(stock_symbol).upper()].copy()
             stock_prices = stock_prices[stock_prices["date"] >= chart_start]
 
         if stock_prices.empty:
-            st.info(f"No dailyohlc history for {stock_symbol} in selected date range.")
+            st.warning(f"No dailyohlc rows remain for {selected_stock} from {chart_start:%Y-%m-%d} onward.")
         else:
             chart_end = stock_prices["date"].max()
 
