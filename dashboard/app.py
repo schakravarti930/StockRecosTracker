@@ -204,6 +204,23 @@ def load_target_hit():
         ORDER BY recommend_date DESC
     """, get_engine())
 
+@st.cache_data(ttl=3600)
+def load_dailyohlc():
+    dailyohlc = pd.read_sql("""
+        SELECT
+            d.symbol,
+            d.[date],
+            d.[open],
+            d.[high],
+            d.[low],
+            d.[close],
+            d.[volume],
+            d.[adjclose]
+        FROM dailyohlc d
+    """, get_engine())
+    dailyohlc["date"] = pd.to_datetime(dailyohlc["date"], errors="coerce")
+    return dailyohlc.sort_values("date", ascending=True)
+
 
 # ─────────────────────────────────────────
 # HELPERS
@@ -239,6 +256,39 @@ def build_firm_color_map(organizations):
             known_map[firm] = FALLBACK_ORGANIZATION_COLORS[fallback_idx % len(FALLBACK_ORGANIZATION_COLORS)]
             fallback_idx += 1
     return firms, known_map
+
+def resolve_stock_symbol(selected_stock, returns_df):
+    symbol_col = next((col for col in ["symbol", "ticker"] if col in returns_df.columns), None)
+    if symbol_col:
+        matches = (
+            returns_df.loc[returns_df["stock_name"] == selected_stock, symbol_col]
+            .dropna()
+            .astype(str)
+            .str.strip()
+        )
+        if not matches.empty:
+            return matches.iloc[0].upper()
+
+    mapping_df = pd.read_sql("""
+        SELECT * FROM nseticker
+    """, get_engine())
+
+    name_candidates = ["stock_name", "name", "company_name", "symbol_name"]
+    symbol_candidates = ["symbol", "ticker"]
+    name_col = next((col for col in name_candidates if col in mapping_df.columns), None)
+    map_symbol_col = next((col for col in symbol_candidates if col in mapping_df.columns), None)
+
+    if name_col and map_symbol_col:
+        map_matches = (
+            mapping_df.loc[mapping_df[name_col] == selected_stock, map_symbol_col]
+            .dropna()
+            .astype(str)
+            .str.strip()
+        )
+        if not map_matches.empty:
+            return map_matches.iloc[0].upper()
+
+    return None
 
 def build_overflow_symbol_map(plot_df, firms):
     symbol_map = {firm: DEFAULT_SYMBOL for firm in firms}
@@ -1011,6 +1061,10 @@ with tab4:
 
     stock_data = returns[returns["stock_name"] == selected_stock].copy()
     stock_targets = target_hit[target_hit["stock_name"] == selected_stock].copy()
+
+    stock_symbol = resolve_stock_symbol(selected_stock, returns)
+    dailyohlc = load_dailyohlc().copy()
+    stock_ohlc = dailyohlc[dailyohlc["symbol"].astype(str).str.upper() == str(stock_symbol).upper()].copy() if stock_symbol else pd.DataFrame()
 
     if len(stock_data) == 0:
         st.warning("No data found for this stock.")
