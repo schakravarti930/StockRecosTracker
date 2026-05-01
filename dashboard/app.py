@@ -1134,11 +1134,33 @@ with tab4:
         else:
             chart_end = stock_prices["date"].max()
 
-            window_option = st.selectbox(
-                "Price Window",
-                ["All since T-30", "6M", "1Y"],
-                index=0,
-            )
+            controls_col1, controls_col2, controls_col3 = st.columns([1, 1, 1.4])
+            with controls_col1:
+                show_all_targets = st.checkbox(
+                    "show_all_targets",
+                    value=False,
+                    help="When enabled, draw all recommendation target lines instead of only the latest."
+                )
+            with controls_col2:
+                show_reco_labels = st.checkbox(
+                    "show_reco_labels",
+                    value=False,
+                    help="Show firm + call text labels on recommendation markers."
+                )
+            with controls_col3:
+                enable_range_selector = st.checkbox(
+                    "Enable range selector",
+                    value=False,
+                    help="Optionally limit the chart to 6M or 1Y instead of full history since T-30."
+                )
+
+            window_option = "All since T-30"
+            if enable_range_selector:
+                window_option = st.selectbox(
+                    "Price Window",
+                    ["All since T-30", "6M", "1Y"],
+                    index=0,
+                )
 
             window_start = chart_start
             if window_option == "6M":
@@ -1152,12 +1174,6 @@ with tab4:
                 st.info(f"No dailyohlc history for {stock_symbol} in selected date range.")
             else:
                 chart_prices = chart_prices.sort_values("date").copy()
-
-                target_line_mode = st.toggle(
-                    "Show latest target only",
-                    value=True,
-                    help="Toggle between the latest target and all recommendation targets."
-                )
 
                 fig_stock = go.Figure()
                 fig_stock.add_trace(go.Scatter(
@@ -1193,7 +1209,7 @@ with tab4:
                     fig_stock.add_trace(go.Scatter(
                         x=rec_plot["plot_date"],
                         y=rec_plot["plot_y"],
-                        mode="markers",
+                        mode="markers+text" if show_reco_labels else "markers",
                         name="Recommendations",
                         marker=dict(size=10, color="#00d4aa", line=dict(width=1, color="#0a0a0f")),
                         customdata=rec_plot[[
@@ -1204,6 +1220,9 @@ with tab4:
                             "potential_returns",
                             "return_current",
                         ]],
+                        text=rec_plot["organization"] + " • " + rec_plot["analyst_recommendation"],
+                        textposition="top center",
+                        textfont=dict(size=10, color="#d4d8ff"),
                         hovertemplate=(
                             "Date: %{x|%d %b %Y}<br>"
                             "Firm: %{customdata[0]}<br>"
@@ -1216,7 +1235,7 @@ with tab4:
                     ))
 
                     target_source = rec_plot.dropna(subset=["target_price", "plot_date"]).sort_values("recommend_date")
-                    if target_line_mode and not target_source.empty:
+                    if (not show_all_targets) and not target_source.empty:
                         target_source = target_source.tail(1)
 
                     for _, rec in target_source.iterrows():
