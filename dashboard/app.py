@@ -206,10 +206,37 @@ def load_target_hit():
 
 @st.cache_data(ttl=3600)
 def load_dailyohlc():
-    return pd.read_sql("""
-        SELECT symbol, [date], [close]
+    ohlc = pd.read_sql("""
+        SELECT symbol, [date], [open], [high], [low], [close], [volume]
         FROM dailyohlc
     """, get_engine())
+    ohlc["symbol"] = ohlc["symbol"].astype(str).str.strip()
+    ohlc["symbol_key"] = ohlc["symbol"].str.upper()
+    ohlc["date"] = pd.to_datetime(ohlc["date"], errors="coerce")
+
+    mapping_df = pd.read_sql("""
+        SELECT * FROM nseticker
+    """, get_engine())
+    name_candidates = ["stock_name", "name", "company_name", "symbol_name"]
+    symbol_candidates = ["symbol", "ticker"]
+    name_col = next((col for col in name_candidates if col in mapping_df.columns), None)
+    map_symbol_col = next((col for col in symbol_candidates if col in mapping_df.columns), None)
+
+    if name_col and map_symbol_col:
+        mapping = (
+            mapping_df[[name_col, map_symbol_col]]
+            .dropna()
+            .rename(columns={name_col: "stock_name", map_symbol_col: "symbol"})
+        )
+        mapping["symbol"] = mapping["symbol"].astype(str).str.strip()
+        mapping["symbol_key"] = mapping["symbol"].str.upper()
+        ohlc = ohlc.merge(
+            mapping[["stock_name", "symbol_key"]].drop_duplicates(),
+            on="symbol_key",
+            how="left",
+        )
+
+    return ohlc.sort_values(["symbol_key", "date"], ascending=[True, True]).reset_index(drop=True)
 
 
 # ─────────────────────────────────────────
@@ -1054,8 +1081,7 @@ with tab4:
     stock_targets = target_hit[target_hit["stock_name"] == selected_stock].copy()
 
     stock_symbol = resolve_stock_symbol(selected_stock, returns)
-    dailyohlc = load_dailyohlc().copy()
-    stock_ohlc = dailyohlc[dailyohlc["symbol"].astype(str).str.upper() == str(stock_symbol).upper()].copy() if stock_symbol else pd.DataFrame()
+    stock_ohlc = dailyohlc[dailyohlc["symbol_key"] == str(stock_symbol).upper()].copy() if stock_symbol else pd.DataFrame()
 
     if len(stock_data) == 0:
         st.warning("No data found for this stock.")
@@ -1105,9 +1131,8 @@ with tab4:
         reco_dates = pd.to_datetime(stock_data["recommend_date"])
         chart_start = reco_dates.min() - pd.Timedelta(days=30)
 
-        stock_prices = dailyohlc[dailyohlc["symbol"] == stock_symbol].copy()
+        stock_prices = dailyohlc[dailyohlc["symbol_key"] == str(stock_symbol).upper()].copy()
         if not stock_prices.empty:
-            stock_prices["date"] = pd.to_datetime(stock_prices["date"])
             stock_prices = stock_prices[stock_prices["date"] >= chart_start]
 
         if stock_prices.empty:
