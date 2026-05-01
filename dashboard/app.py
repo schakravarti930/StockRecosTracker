@@ -1083,6 +1083,15 @@ with tab4:
     selected_stock = st.selectbox("Select Stock", stocks)
 
     stock_data = returns[returns["stock_name"] == selected_stock].copy()
+    stock_data["recommend_date"] = pd.to_datetime(stock_data["recommend_date"], errors="coerce")
+    reco_tiebreaker_col = next(
+        (col for col in ["recommendation_id", "reco_id", "id"] if col in stock_data.columns),
+        None,
+    )
+    stock_sort_cols = ["organization", "recommend_date"] + ([reco_tiebreaker_col] if reco_tiebreaker_col else [])
+    stock_data = stock_data.sort_values(stock_sort_cols, ascending=True, kind="mergesort").copy()
+    stock_data["firm_seq"] = stock_data.groupby("organization").cumcount() + 1
+    stock_data["reco_tag"] = stock_data["organization"] + " #" + stock_data["firm_seq"].astype(str)
     stock_targets = target_hit[target_hit["stock_name"] == selected_stock].copy()
 
     stock_symbol = resolve_stock_symbol(selected_stock, returns)
@@ -1095,7 +1104,7 @@ with tab4:
         m1, m2, m3, m4 = st.columns(4)
 
         with m1:
-            latest = stock_data.iloc[0]
+            latest = stock_data.iloc[-1]
             st.markdown(f"""<div class="metric-card">
                 <div class="metric-label">Latest Call</div>
                 <div class="metric-value" style="font-size:20px">{latest['analyst_recommendation']}</div>
@@ -1231,14 +1240,14 @@ with tab4:
                                 line=dict(width=1, color="#0a0a0f")
                             ),
                             customdata=firm_recs[[
-                                "organization",
+                                "reco_tag",
                                 "analyst_recommendation",
                                 "entry_price",
                                 "target_price",
                                 "potential_returns",
                                 "return_current",
                             ]],
-                            text=firm_recs["organization"] + " • " + firm_recs["analyst_recommendation"],
+                            text=firm_recs["reco_tag"] + " • " + firm_recs["analyst_recommendation"],
                             textposition="top center",
                             textfont=dict(size=10, color="#d4d8ff"),
                             hovertemplate=(
@@ -1257,7 +1266,7 @@ with tab4:
                         target_source = target_source.tail(1)
 
                     for _, rec in target_source.iterrows():
-                        target_label = f"{rec['organization']} target ({rec['recommend_date']:%d %b %Y})"
+                        target_label = f"{rec['reco_tag']} target ({rec['recommend_date']:%d %b %Y})"
                         fig_stock.add_trace(go.Scatter(
                             x=[window_start, chart_end],
                             y=[rec["target_price"], rec["target_price"]],
@@ -1267,7 +1276,7 @@ with tab4:
                             line=dict(color=rec["firm_color"], width=1.5, dash=rec["firm_dash"]),
                             opacity=0.65,
                             hovertemplate=(
-                                "Firm: " + str(rec["organization"]) + "<br>"
+                                "Firm: " + str(rec["reco_tag"]) + "<br>"
                                 "Target: ₹%{y:,.2f}<br>"
                                 "As of: " + f"{rec['recommend_date']:%d %b %Y}" + "<extra></extra>"
                             ),
