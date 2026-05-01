@@ -274,6 +274,11 @@ def build_firm_color_map(organizations):
             fallback_idx += 1
     return firms, known_map
 
+def build_firm_dash_map(organizations):
+    firms = sorted(pd.Series(organizations).dropna().unique().tolist())
+    dash_cycle = ["solid", "dash", "dot", "dashdot", "longdash"]
+    return {firm: dash_cycle[idx % len(dash_cycle)] for idx, firm in enumerate(firms)}
+
 def resolve_stock_symbol(selected_stock, returns_df):
     symbol_col = next((col for col in ["symbol", "ticker"] if col in returns_df.columns), None)
     if symbol_col:
@@ -1189,6 +1194,10 @@ with tab4:
                 rec_plot["recommend_date"] = pd.to_datetime(rec_plot["recommend_date"], errors="coerce")
                 rec_plot["recommended_price"] = rec_plot["recommended_price"].fillna(rec_plot.get("close"))
                 rec_plot["entry_price"] = rec_plot["recommended_price"].fillna(rec_plot.get("close"))
+                _, firm_color_map = build_firm_color_map(rec_plot["organization"])
+                firm_dash_map = build_firm_dash_map(rec_plot["organization"])
+                rec_plot["firm_color"] = rec_plot["organization"].map(firm_color_map).fillna("#00d4aa")
+                rec_plot["firm_dash"] = rec_plot["organization"].map(firm_dash_map).fillna("solid")
                 trading_dates = chart_prices["date"].dropna().sort_values().reset_index(drop=True)
 
                 if not trading_dates.empty:
@@ -1206,33 +1215,42 @@ with tab4:
                     )
                     rec_plot["plot_y"] = rec_plot["entry_price"].fillna(rec_plot["plot_close"])
 
-                    fig_stock.add_trace(go.Scatter(
-                        x=rec_plot["plot_date"],
-                        y=rec_plot["plot_y"],
-                        mode="markers+text" if show_reco_labels else "markers",
-                        name="Recommendations",
-                        marker=dict(size=10, color="#00d4aa", line=dict(width=1, color="#0a0a0f")),
-                        customdata=rec_plot[[
-                            "organization",
-                            "analyst_recommendation",
-                            "entry_price",
-                            "target_price",
-                            "potential_returns",
-                            "return_current",
-                        ]],
-                        text=rec_plot["organization"] + " • " + rec_plot["analyst_recommendation"],
-                        textposition="top center",
-                        textfont=dict(size=10, color="#d4d8ff"),
-                        hovertemplate=(
-                            "Date: %{x|%d %b %Y}<br>"
-                            "Firm: %{customdata[0]}<br>"
-                            "Call: %{customdata[1]}<br>"
-                            "Entry: ₹%{customdata[2]:,.2f}<br>"
-                            "Target: ₹%{customdata[3]:,.2f}<br>"
-                            "Upside: %{customdata[4]:.2f}%<br>"
-                            "Current Return: %{customdata[5]:.2f}%<extra></extra>"
-                        ),
-                    ))
+                    for firm in sorted(rec_plot["organization"].dropna().unique().tolist()):
+                        firm_recs = rec_plot[rec_plot["organization"] == firm].copy()
+                        if firm_recs.empty:
+                            continue
+                        fig_stock.add_trace(go.Scatter(
+                            x=firm_recs["plot_date"],
+                            y=firm_recs["plot_y"],
+                            mode="markers+text" if show_reco_labels else "markers",
+                            name=f"{firm} recommendations",
+                            legendgroup=firm,
+                            marker=dict(
+                                size=10,
+                                color=firm_recs["firm_color"],
+                                line=dict(width=1, color="#0a0a0f")
+                            ),
+                            customdata=firm_recs[[
+                                "organization",
+                                "analyst_recommendation",
+                                "entry_price",
+                                "target_price",
+                                "potential_returns",
+                                "return_current",
+                            ]],
+                            text=firm_recs["organization"] + " • " + firm_recs["analyst_recommendation"],
+                            textposition="top center",
+                            textfont=dict(size=10, color="#d4d8ff"),
+                            hovertemplate=(
+                                "Date: %{x|%d %b %Y}<br>"
+                                "Firm: %{customdata[0]}<br>"
+                                "Call: %{customdata[1]}<br>"
+                                "Entry: ₹%{customdata[2]:,.2f}<br>"
+                                "Target: ₹%{customdata[3]:,.2f}<br>"
+                                "Upside: %{customdata[4]:.2f}%<br>"
+                                "Current Return: %{customdata[5]:.2f}%<extra></extra>"
+                            ),
+                        ))
 
                     target_source = rec_plot.dropna(subset=["target_price", "plot_date"]).sort_values("recommend_date")
                     if (not show_all_targets) and not target_source.empty:
@@ -1240,15 +1258,20 @@ with tab4:
 
                     for _, rec in target_source.iterrows():
                         target_label = f"{rec['organization']} target ({rec['recommend_date']:%d %b %Y})"
-                        fig_stock.add_hline(
-                            y=rec["target_price"],
-                            line_dash="dot",
-                            line_width=1.5,
-                            line_color="#ffb400",
-                            annotation_text=target_label,
-                            annotation_position="top left",
-                            opacity=0.6,
-                        )
+                        fig_stock.add_trace(go.Scatter(
+                            x=[window_start, chart_end],
+                            y=[rec["target_price"], rec["target_price"]],
+                            mode="lines",
+                            name=target_label,
+                            legendgroup=rec["organization"],
+                            line=dict(color=rec["firm_color"], width=1.5, dash=rec["firm_dash"]),
+                            opacity=0.65,
+                            hovertemplate=(
+                                "Firm: " + str(rec["organization"]) + "<br>"
+                                "Target: ₹%{y:,.2f}<br>"
+                                "As of: " + f"{rec['recommend_date']:%d %b %Y}" + "<extra></extra>"
+                            ),
+                        ))
 
                 fig_stock.update_layout(
                     **PLOTLY_THEME,
