@@ -204,6 +204,20 @@ def load_target_hit():
         ORDER BY recommend_date DESC
     """, get_engine())
 
+@st.cache_data(ttl=3600)
+def load_stock_prices(symbols):
+    cleaned = sorted({str(s).strip() for s in symbols if pd.notna(s) and str(s).strip()})
+    if not cleaned:
+        return pd.DataFrame(columns=["symbol", "date", "close"])
+    escaped_symbols = [s.replace("'", "''") for s in cleaned]
+    symbol_sql = ", ".join([f"'{s}'" for s in escaped_symbols])
+    return pd.read_sql(f"""
+        SELECT symbol, [date], [close]
+        FROM dailyohlc
+        WHERE symbol IN ({symbol_sql})
+        ORDER BY [date] ASC
+    """, get_engine())
+
 
 # ─────────────────────────────────────────
 # HELPERS
@@ -1048,6 +1062,112 @@ with tab4:
                 <div class="metric-label">Firms Covering</div>
                 <div class="metric-value">{n_firms}</div>
             </div>""", unsafe_allow_html=True)
+
+        toggle_col1, toggle_col2 = st.columns([1, 1])
+        with toggle_col1:
+            show_all_targets = st.toggle("Show all targets", value=True, key="stock_lookup_show_all_targets")
+        with toggle_col2:
+            show_vlines = st.toggle("Show recommendation date lines", value=False, key="stock_lookup_show_vlines")
+
+        symbol_candidates = [selected_stock]
+        if "stock_code" in stock_data.columns:
+            symbol_candidates += stock_data["stock_code"].dropna().astype(str).unique().tolist()
+        price_df = load_stock_prices(tuple(symbol_candidates))
+
+        fig_stock = go.Figure()
+        price_df = price_df.copy()
+        if len(price_df) > 0:
+            price_df["date"] = pd.to_datetime(price_df["date"])
+            price_df["close"] = pd.to_numeric(price_df["close"], errors="coerce")
+            price_df = price_df.dropna(subset=["date", "close"]).sort_values("date")
+
+            fig_stock.add_trace(go.Scatter(
+                x=price_df["date"],
+                y=price_df["close"],
+                mode="lines",
+                name="Daily Close",
+                line=dict(color="#7b9fff", width=2),
+                hovertemplate="Date: %{x|%d %b %Y}<br>Close: ₹%{y:,.2f}<extra></extra>",
+            ))
+
+        plot_recs = stock_data.copy().sort_values("recommend_date")
+        plot_recs["recommend_date"] = pd.to_datetime(plot_recs["recommend_date"])
+        if "recommended_price" in plot_recs.columns:
+            plot_recs["recommended_price"] = pd.to_numeric(plot_recs["recommended_price"], errors="coerce")
+        else:
+            plot_recs["recommended_price"] = pd.NA
+        plot_recs["target_price"] = pd.to_numeric(plot_recs["target_price"], errors="coerce")
+
+        rec_color_map = {"BUY": "#00d4aa", "HOLD": "#ffb400", "SELL": "#ff5577"}
+        rec_y = []
+        rec_x = []
+        for _, row in plot_recs.iterrows():
+            rec_date = row["recommend_date"]
+            snapped_date = rec_date
+            close_at_rec = pd.NA
+            if len(price_df) > 0 and pd.notna(rec_date):
+                nearest_idx = (price_df["date"] - rec_date).abs().idxmin()
+                snapped_date = price_df.loc[nearest_idx, "date"]
+                close_at_rec = price_df.loc[nearest_idx, "close"]
+            y_val = row["recommended_price"] if pd.notna(row["recommended_price"]) else close_at_rec
+            rec_y.append(y_val)
+            rec_x.append(snapped_date)
+
+        plot_recs["plot_x"] = rec_x
+        plot_recs["plot_y"] = rec_y
+        plot_recs["rec_class"] = plot_recs["analyst_recommendation"].astype(str).str.upper().str.strip()
+        plot_recs["marker_color"] = plot_recs["rec_class"].map(rec_color_map).fillna("#7b9fff")
+
+        fig_stock.add_trace(go.Scatter(
+            x=plot_recs["plot_x"],
+            y=plot_recs["plot_y"],
+            mode="markers",
+            name="Recommendations",
+            marker=dict(size=10, color=plot_recs["marker_color"], line=dict(width=1, color="#0a0a0f")),
+            customdata=plot_recs[[
+                "organization", "analyst_recommendation", "recommend_date", "recommended_price",
+                "target_price", "potential_returns", "return_current"
+            ]],
+            hovertemplate=(
+                "<b>%{customdata[0]}</b><br>"
+                "Call: %{customdata[1]}<br>"
+                "Date: %{customdata[2]|%d %b %Y}<br>"
+                "Entry: ₹%{customdata[3]:,.2f}<br>"
+                "Target: ₹%{customdata[4]:,.2f}<br>"
+                "Upside: %{customdata[5]:.2f}%<br>"
+                "Current Return: %{customdata[6]:.2f}%<extra></extra>"
+            ),
+        ))
+
+        target_rows = plot_recs.copy()
+        if not show_all_targets and len(target_rows) > 0:
+            target_rows = target_rows.sort_values("recommend_date", ascending=False).head(1)
+        for _, row in target_rows.iterrows():
+            if pd.isna(row["target_price"]):
+                continue
+            tgt_color = rec_color_map.get(row["rec_class"], "#7b9fff")
+            fig_stock.add_hline(
+                y=float(row["target_price"]),
+                line=dict(color=tgt_color, width=1, dash="dot"),
+                opacity=0.6,
+                annotation_text=f"Target ₹{float(row['target_price']):,.0f}",
+                annotation_position="top right",
+            )
+
+        if show_vlines:
+            for rec_date in plot_recs["recommend_date"].dropna():
+                fig_stock.add_vline(x=rec_date, line=dict(color="#2a2a3e", width=1, dash="dot"), opacity=0.5)
+
+        fig_stock.update_layout(
+            **PLOTLY_THEME,
+            height=420,
+            margin=dict(l=10, r=10, t=20, b=20),
+            xaxis=dict(**AXIS_STYLE),
+            yaxis=dict(**AXIS_STYLE, title="Price (₹)"),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+            hovermode="closest",
+        )
+        st.plotly_chart(fig_stock, use_container_width=True)
 
         # All recs for this stock
         s_display = stock_data[[
