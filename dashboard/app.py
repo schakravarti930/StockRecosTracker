@@ -204,6 +204,13 @@ def load_target_hit():
         ORDER BY recommend_date DESC
     """, get_engine())
 
+@st.cache_data(ttl=3600)
+def load_dailyohlc():
+    return pd.read_sql("""
+        SELECT symbol, [date], [close]
+        FROM dailyohlc
+    """, get_engine())
+
 
 # ─────────────────────────────────────────
 # HELPERS
@@ -265,6 +272,7 @@ try:
     scorecard  = load_scorecard()
     returns    = load_returns()
     target_hit = load_target_hit()
+    dailyohlc  = load_dailyohlc()
     for frame in (scorecard, returns, target_hit):
         if "organization" in frame.columns:
             frame["organization"] = frame["organization"].apply(normalize_organization_name)
@@ -1048,6 +1056,60 @@ with tab4:
                 <div class="metric-label">Firms Covering</div>
                 <div class="metric-value">{n_firms}</div>
             </div>""", unsafe_allow_html=True)
+
+        ticker_col_candidates = ["nse_ticker_yfinance", "symbol", "ticker", "stock_ticker"]
+        ticker_col = next((col for col in ticker_col_candidates if col in stock_data.columns), None)
+        stock_symbol = (
+            stock_data[ticker_col].dropna().iloc[0]
+            if ticker_col and not stock_data[ticker_col].dropna().empty
+            else selected_stock
+        )
+
+        reco_dates = pd.to_datetime(stock_data["recommend_date"])
+        chart_start = reco_dates.min() - pd.Timedelta(days=30)
+
+        stock_prices = dailyohlc[dailyohlc["symbol"] == stock_symbol].copy()
+        if not stock_prices.empty:
+            stock_prices["date"] = pd.to_datetime(stock_prices["date"])
+            stock_prices = stock_prices[stock_prices["date"] >= chart_start]
+
+        if stock_prices.empty:
+            st.info(f"No dailyohlc history for {stock_symbol} in selected date range.")
+        else:
+            chart_end = stock_prices["date"].max()
+
+            window_option = st.selectbox(
+                "Price Window",
+                ["All since T-30", "6M", "1Y"],
+                index=0,
+            )
+
+            window_start = chart_start
+            if window_option == "6M":
+                window_start = chart_end - pd.DateOffset(months=6)
+            elif window_option == "1Y":
+                window_start = chart_end - pd.DateOffset(years=1)
+
+            chart_prices = stock_prices[stock_prices["date"] >= window_start].copy()
+
+            if chart_prices.empty:
+                st.info(f"No dailyohlc history for {stock_symbol} in selected date range.")
+            else:
+                fig_stock = px.line(
+                    chart_prices.sort_values("date"),
+                    x="date",
+                    y="close",
+                    title=f"{stock_symbol} Daily Close",
+                    labels={"date": "Date", "close": "Close (₹)"},
+                )
+                fig_stock.update_layout(
+                    **PLOTLY_THEME,
+                    height=360,
+                    margin=dict(l=10, r=10, t=40, b=20),
+                    xaxis=AXIS_STYLE,
+                    yaxis=AXIS_STYLE,
+                )
+                st.plotly_chart(fig_stock, use_container_width=True)
 
         # All recs for this stock
         s_display = stock_data[[
