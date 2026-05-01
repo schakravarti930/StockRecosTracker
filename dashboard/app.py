@@ -1151,19 +1151,93 @@ with tab4:
             if chart_prices.empty:
                 st.info(f"No dailyohlc history for {stock_symbol} in selected date range.")
             else:
-                fig_stock = px.line(
-                    chart_prices.sort_values("date"),
-                    x="date",
-                    y="close",
-                    title=f"{stock_symbol} Daily Close",
-                    labels={"date": "Date", "close": "Close (₹)"},
+                chart_prices = chart_prices.sort_values("date").copy()
+
+                target_line_mode = st.toggle(
+                    "Show latest target only",
+                    value=True,
+                    help="Toggle between the latest target and all recommendation targets."
                 )
+
+                fig_stock = go.Figure()
+                fig_stock.add_trace(go.Scatter(
+                    x=chart_prices["date"],
+                    y=chart_prices["close"],
+                    mode="lines",
+                    name="Close",
+                    line=dict(color="#7b9fff", width=2),
+                    hovertemplate="Date: %{x|%d %b %Y}<br>Close: ₹%{y:,.2f}<extra></extra>",
+                ))
+
+                rec_plot = stock_data.copy()
+                rec_plot["recommend_date"] = pd.to_datetime(rec_plot["recommend_date"], errors="coerce")
+                rec_plot["recommended_price"] = rec_plot["recommended_price"].fillna(rec_plot.get("close"))
+                rec_plot["entry_price"] = rec_plot["recommended_price"].fillna(rec_plot.get("close"))
+                trading_dates = chart_prices["date"].dropna().sort_values().reset_index(drop=True)
+
+                if not trading_dates.empty:
+                    rec_plot = rec_plot[rec_plot["recommend_date"].notna()].copy()
+                    rec_plot["plot_date"] = rec_plot["recommend_date"]
+
+                    for idx, rec_date in rec_plot["recommend_date"].items():
+                        nearest_idx = (trading_dates - rec_date).abs().idxmin()
+                        rec_plot.at[idx, "plot_date"] = trading_dates.loc[nearest_idx]
+
+                    rec_plot = rec_plot.merge(
+                        chart_prices[["date", "close"]].rename(columns={"date": "plot_date", "close": "plot_close"}),
+                        on="plot_date",
+                        how="left",
+                    )
+                    rec_plot["plot_y"] = rec_plot["entry_price"].fillna(rec_plot["plot_close"])
+
+                    fig_stock.add_trace(go.Scatter(
+                        x=rec_plot["plot_date"],
+                        y=rec_plot["plot_y"],
+                        mode="markers",
+                        name="Recommendations",
+                        marker=dict(size=10, color="#00d4aa", line=dict(width=1, color="#0a0a0f")),
+                        customdata=rec_plot[[
+                            "organization",
+                            "analyst_recommendation",
+                            "entry_price",
+                            "target_price",
+                            "potential_returns",
+                            "return_current",
+                        ]],
+                        hovertemplate=(
+                            "Date: %{x|%d %b %Y}<br>"
+                            "Firm: %{customdata[0]}<br>"
+                            "Call: %{customdata[1]}<br>"
+                            "Entry: ₹%{customdata[2]:,.2f}<br>"
+                            "Target: ₹%{customdata[3]:,.2f}<br>"
+                            "Upside: %{customdata[4]:.2f}%<br>"
+                            "Current Return: %{customdata[5]:.2f}%<extra></extra>"
+                        ),
+                    ))
+
+                    target_source = rec_plot.dropna(subset=["target_price", "plot_date"]).sort_values("recommend_date")
+                    if target_line_mode and not target_source.empty:
+                        target_source = target_source.tail(1)
+
+                    for _, rec in target_source.iterrows():
+                        target_label = f"{rec['organization']} target ({rec['recommend_date']:%d %b %Y})"
+                        fig_stock.add_hline(
+                            y=rec["target_price"],
+                            line_dash="dot",
+                            line_width=1.5,
+                            line_color="#ffb400",
+                            annotation_text=target_label,
+                            annotation_position="top left",
+                            opacity=0.6,
+                        )
+
                 fig_stock.update_layout(
                     **PLOTLY_THEME,
-                    height=360,
-                    margin=dict(l=10, r=10, t=40, b=20),
-                    xaxis=AXIS_STYLE,
-                    yaxis=AXIS_STYLE,
+                    title=f"{stock_symbol} Daily Close",
+                    height=420,
+                    margin=dict(l=10, r=10, t=50, b=20),
+                    xaxis=dict(**AXIS_STYLE, title="Date"),
+                    yaxis=dict(**AXIS_STYLE, title="Close (₹)"),
                 )
                 st.plotly_chart(fig_stock, use_container_width=True)
 
