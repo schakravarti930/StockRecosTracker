@@ -2,9 +2,16 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import URL
+from sqlalchemy.exc import DBAPIError, OperationalError
 import os
 import re
+import time
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # ─────────────────────────────────────────
 # CONFIG
@@ -170,53 +177,103 @@ def get_engine():
     username = os.environ.get("AZURE_SQL_USERNAME")
     password = os.environ.get("AZURE_SQL_PASSWORD")
 
-    url = (
-        f"mssql+pyodbc://{username}:{password}"
-        f"@{server}.database.windows.net:1433/{database}"
-        "?driver=ODBC+Driver+17+for+SQL+Server"
-        "&Encrypt=yes&TrustServerCertificate=no&Connection+Timeout=30"
+    missing = [
+        name for name, value in {
+            "AZURE_SQL_SERVER": server,
+            "AZURE_SQL_DATABASE": database,
+            "AZURE_SQL_USERNAME": username,
+            "AZURE_SQL_PASSWORD": password,
+        }.items()
+        if not value
+    ]
+    if missing:
+        raise RuntimeError(f"Missing required database environment variables: {', '.join(missing)}")
+
+    url = URL.create(
+        "mssql+pyodbc",
+        username=username,
+        password=password,
+        host=f"{server}.database.windows.net",
+        port=1433,
+        database=database,
+        query={
+            "driver": "ODBC Driver 17 for SQL Server",
+            "Encrypt": "yes",
+            "TrustServerCertificate": "no",
+            "Connection Timeout": "60",
+        },
     )
-    return create_engine(url)
+    return create_engine(
+        url,
+        pool_pre_ping=True,
+        pool_size=2,
+        max_overflow=2,
+        pool_recycle=1800,
+        pool_timeout=60,
+        connect_args={"timeout": 60},
+    )
 
 
 # ─────────────────────────────────────────
 # DATA LOADERS
 # ─────────────────────────────────────────
 
+class DatabaseConnectionError(RuntimeError):
+    pass
+
+
+def read_sql_with_retry(sql, attempts=3, initial_backoff=1.5):
+    last_error = None
+    for attempt in range(1, attempts + 1):
+        try:
+            with get_engine().connect() as conn:
+                return pd.read_sql(text(sql), conn)
+        except (OperationalError, DBAPIError) as exc:
+            last_error = exc
+            get_engine.clear()
+            if attempt >= attempts:
+                break
+            time.sleep(initial_backoff * attempt)
+
+    raise DatabaseConnectionError(
+        f"Database did not respond after {attempts} attempts. Last error: {last_error}"
+    ) from last_error
+
+
 @st.cache_data(ttl=3600)
 def load_scorecard():
-    return pd.read_sql("""
+    return read_sql_with_retry("""
         SELECT * FROM vw_analyst_scorecard
         ORDER BY total_calls DESC
-    """, get_engine())
+    """)
 
 @st.cache_data(ttl=3600)
 def load_returns():
-    return pd.read_sql("""
+    return read_sql_with_retry("""
         SELECT * FROM vw_recommendation_returns
         ORDER BY recommend_date DESC
-    """, get_engine())
+    """)
 
 @st.cache_data(ttl=3600)
 def load_target_hit():
-    return pd.read_sql("""
+    return read_sql_with_retry("""
         SELECT * FROM vw_target_hit
         ORDER BY recommend_date DESC
-    """, get_engine())
+    """)
 
 @st.cache_data(ttl=3600)
 def load_dailyohlc():
-    ohlc = pd.read_sql("""
+    ohlc = read_sql_with_retry("""
         SELECT symbol, [date], [open], [high], [low], [close], [volume]
         FROM dailyohlc
-    """, get_engine())
+    """)
     ohlc["symbol"] = ohlc["symbol"].astype(str).str.strip()
     ohlc["symbol_key"] = ohlc["symbol"].str.upper()
     ohlc["date"] = pd.to_datetime(ohlc["date"], errors="coerce")
 
-    mapping_df = pd.read_sql("""
+    mapping_df = read_sql_with_retry("""
         SELECT * FROM nseticker
-    """, get_engine())
+    """)
     name_candidates = ["stock_name", "name", "company_name", "symbol_name"]
     symbol_candidates = ["symbol", "ticker"]
     name_col = next((col for col in name_candidates if col in mapping_df.columns), None)
@@ -291,9 +348,9 @@ def resolve_stock_symbol(selected_stock, returns_df):
         if not matches.empty:
             return matches.iloc[0].upper()
 
-    mapping_df = pd.read_sql("""
+    mapping_df = read_sql_with_retry("""
         SELECT * FROM nseticker
-    """, get_engine())
+    """)
 
     name_candidates = ["stock_name", "name", "company_name", "symbol_name"]
     symbol_candidates = ["symbol", "ticker"]
@@ -348,6 +405,10 @@ try:
         )
     )
     db_ok = True
+except DatabaseConnectionError as e:
+    st.error(f"Database connection failed after retries. Details: {e}")
+    db_ok = False
+    st.stop()
 except Exception as e:
     st.error(f"Database connection failed: {e}")
     db_ok = False
@@ -1082,7 +1143,8 @@ with tab4:
     stocks = sorted(returns["stock_name"].dropna().unique().tolist())
     selected_stock = st.selectbox("Select Stock", stocks)
 
-    stock_data = returns[returns["stock_name"] == selected_stock].copy()
+    stock_data_original_order = returns[returns["stock_name"] == selected_stock].copy()
+    stock_data = stock_data_original_order.copy()
     stock_data["recommend_date"] = pd.to_datetime(stock_data["recommend_date"], errors="coerce")
     reco_tiebreaker_col = next(
         (col for col in ["recommendation_id", "reco_id", "id"] if col in stock_data.columns),
@@ -1095,6 +1157,22 @@ with tab4:
     stock_targets = target_hit[target_hit["stock_name"] == selected_stock].copy()
 
     stock_symbol = resolve_stock_symbol(selected_stock, returns)
+    latest_candidates = stock_data[stock_data["recommend_date"].notna()].copy()
+    if not latest_candidates.empty:
+        latest_sort_cols = ["recommend_date"]
+        if reco_tiebreaker_col:
+            latest_candidates["_latest_tiebreaker"] = pd.to_numeric(
+                latest_candidates[reco_tiebreaker_col],
+                errors="coerce",
+            ).fillna(-1)
+            latest_sort_cols.append("_latest_tiebreaker")
+        latest_call = latest_candidates.sort_values(
+            latest_sort_cols,
+            ascending=True,
+            kind="mergesort",
+        ).iloc[-1]
+    else:
+        latest_call = stock_data_original_order.iloc[-1] if not stock_data_original_order.empty else None
 
     if len(stock_data) == 0:
         st.warning("No data found for this stock.")
@@ -1104,11 +1182,15 @@ with tab4:
         m1, m2, m3, m4 = st.columns(4)
 
         with m1:
-            latest = stock_data.iloc[-1]
+            latest = latest_call
+            latest_date = pd.to_datetime(latest.get("recommend_date"), errors="coerce")
+            latest_subtitle = str(latest["organization"])
+            if pd.notna(latest_date):
+                latest_subtitle = f"{latest_subtitle} · {latest_date:%d %b %Y}"
             st.markdown(f"""<div class="metric-card">
                 <div class="metric-label">Latest Call</div>
                 <div class="metric-value" style="font-size:20px">{latest['analyst_recommendation']}</div>
-                <div style="color:#6b6b8a;font-size:11px;margin-top:4px">{latest['organization']}</div>
+                <div style="color:#6b6b8a;font-size:11px;margin-top:4px">{latest_subtitle}</div>
             </div>""", unsafe_allow_html=True)
 
         with m2:
@@ -1195,7 +1277,8 @@ with tab4:
                     y=chart_prices["close"],
                     mode="lines",
                     name="Close",
-                    line=dict(color="#7b9fff", width=2),
+                    showlegend=False,
+                    line=dict(color="#9aa0ad", width=2),
                     hovertemplate="Date: %{x|%d %b %Y}<br>Close: ₹%{y:,.2f}<extra></extra>",
                 ))
 
@@ -1223,6 +1306,7 @@ with tab4:
                         how="left",
                     )
                     rec_plot["plot_y"] = rec_plot["entry_price"].fillna(rec_plot["plot_close"])
+                    rec_plot["reco_short_tag"] = "#" + rec_plot["firm_seq"].astype(str)
 
                     for firm in sorted(rec_plot["organization"].dropna().unique().tolist()):
                         firm_recs = rec_plot[rec_plot["organization"] == firm].copy()
@@ -1247,7 +1331,7 @@ with tab4:
                                 "potential_returns",
                                 "return_current",
                             ]],
-                            text=firm_recs["reco_tag"] + " • " + firm_recs["analyst_recommendation"],
+                            text=firm_recs["reco_short_tag"] + " • " + firm_recs["analyst_recommendation"],
                             textposition="top center",
                             textfont=dict(size=10, color="#d4d8ff"),
                             hovertemplate=(
@@ -1267,16 +1351,20 @@ with tab4:
 
                     for _, rec in target_source.iterrows():
                         target_label = f"{rec['reco_tag']} target ({rec['recommend_date']:%d %b %Y})"
+                        target_start = rec["plot_date"]
+                        if target_start < window_start:
+                            target_start = window_start
                         fig_stock.add_trace(go.Scatter(
-                            x=[window_start, chart_end],
+                            x=[target_start, chart_end],
                             y=[rec["target_price"], rec["target_price"]],
                             mode="lines",
                             name=target_label,
                             legendgroup=rec["organization"],
+                            showlegend=False,
                             line=dict(color=rec["firm_color"], width=1.5, dash=rec["firm_dash"]),
                             opacity=0.65,
                             hovertemplate=(
-                                "Firm: " + str(rec["reco_tag"]) + "<br>"
+                                "Recommendation: " + str(rec["reco_tag"]) + "<br>"
                                 "Target: ₹%{y:,.2f}<br>"
                                 "As of: " + f"{rec['recommend_date']:%d %b %Y}" + "<extra></extra>"
                             ),
@@ -1284,10 +1372,18 @@ with tab4:
 
                 fig_stock.update_layout(
                     **PLOTLY_THEME,
-                    title=f"{stock_symbol} Daily Close",
+                    title=f"Recommendation Timeline · {selected_stock} ({stock_symbol})",
                     height=420,
-                    margin=dict(l=10, r=10, t=50, b=20),
+                    margin=dict(l=10, r=10, t=50, b=80),
                     xaxis=dict(**AXIS_STYLE, title="Date"),
+                    legend=dict(
+                        title="Firms",
+                        orientation="h",
+                        yanchor="top",
+                        y=-0.18,
+                        xanchor="left",
+                        x=0,
+                    ),
                     yaxis=dict(**AXIS_STYLE, title="Close (₹)"),
                 )
                 st.plotly_chart(fig_stock, use_container_width=True)
