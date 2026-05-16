@@ -168,6 +168,9 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
+# Node / frontend
+node_modules/
+
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
@@ -210,4 +213,7 @@ __marimo__/
 analyst_env/
 *.log
 .DS_Store
+
+# Generated static dashboard data
+public/data/
 
