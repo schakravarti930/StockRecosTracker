@@ -466,7 +466,7 @@ function PromisedVsActualChart({ rows, firmContext }) {
       data={traces}
       layout={plotLayout({
         title: "Promised vs Actual Return",
-        height: 420,
+        height: 600,
         margin: { l: 80, r: 10, t: 56, b: 70 },
         xaxis: { ...AXIS_STYLE, range: [xLo, xHi], title: { text: "% Target Returns", standoff: 14 }, automargin: true },
         yaxis: { ...AXIS_STYLE, range: [yLo, yHi], title: { text: "% Actual Returns", standoff: 14 }, automargin: true },
@@ -764,6 +764,9 @@ function AllCallsPage({ returns, firmContext }) {
         <Select label="Direction" value={direction} options={["All", "Correct", "Incorrect"]} onChange={setDirection} />
       </div>
       <SectionTitle>{filtered.length} Calls</SectionTitle>
+      <div className="metric-subtext" style={{ marginBottom: "14px", marginTop: "-4px", lineHeight: "1.4" }}>
+        Scatter plot comparing the promised target return against the actual current return. Calls above the diagonal line have exceeded their target, while calls in the red zone are currently tracking at a loss.
+      </div>
       <PromisedVsActualChart rows={filtered} firmContext={firmContext} />
       <VirtualTable columns={allCallsColumns()} rows={filtered} height={500} />
     </>
@@ -901,8 +904,6 @@ function allCallsColumns() {
     { key: "recommend_date", label: "Date", render: formatDate },
     { key: "recommended_price", label: "Entry ₹", render: formatMoney },
     { key: "target_price", label: "Target ₹", render: formatMoney },
-    { key: "return_30d", label: "30d %", render: formatPct, className: toneClass },
-    { key: "return_60d", label: "60d %", render: formatPct, className: toneClass },
     { key: "return_current", label: "Current %", render: formatPct, className: toneClass },
     { key: "potential_returns", label: "Upside %", render: formatPct, className: toneClass },
     { key: "days_alive", label: "Days" },
