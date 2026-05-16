@@ -605,6 +605,104 @@ function DaysToTargetHistogram({ targetHit, firmContext }) {
   );
 }
 
+function StockPriceChart({ priceRows, stockReturns, firmContext }) {
+  const validPrices = priceRows.filter((row) => row?.[0] && finiteNumber(row?.[1]) !== null);
+  if (!validPrices.length) return <div className="empty-state">No price history found for this stock.</div>;
+
+  const firms = sortStrings(stockReturns.map((row) => row.organization));
+  const symbolMap = buildSymbolMap(firms);
+  const priceTrace = {
+    type: "scatter",
+    mode: "lines",
+    name: "Close",
+    x: validPrices.map((row) => row[0]),
+    y: validPrices.map((row) => finiteNumber(row[1])),
+    line: { color: "#AEB7D8", width: 2.5 },
+    hovertemplate: "Date: %{x|%d %b %Y}<br>Close: ₹%{y:,.2f}<extra></extra>",
+  };
+  const latestPriceDate = validPrices[validPrices.length - 1]?.[0];
+  const recommendationTraces = firms
+    .map((firm) => {
+      const firmRows = stockReturns.filter((row) => row.organization === firm && row.recommend_date && finiteNumber(row.recommended_price) !== null);
+      if (!firmRows.length) return null;
+      return {
+        type: "scatter",
+        mode: "markers",
+        name: firm,
+        legendgroup: firm,
+        x: firmRows.map((row) => row.recommend_date),
+        y: firmRows.map((row) => finiteNumber(row.recommended_price)),
+        text: firmRows.map((row) => row.analyst_recommendation),
+        customdata: firmRows.map((row) => [formatMoney(row.target_price), formatPct(row.potential_returns), formatPct(row.return_current), directionLabel(row.direction_correct)]),
+        marker: {
+          color: firmContext.colorMap[firm],
+          symbol: symbolMap[firm],
+          size: 10,
+          opacity: 0.9,
+          line: { width: 1, color: "#0a0a0f" },
+        },
+        hovertemplate:
+          "Firm: %{fullData.name}<br>Call: %{text}<br>Date: %{x|%d %b %Y}<br>Entry: ₹%{y:,.2f}<br>Target: %{customdata[0]}<br>Upside: %{customdata[1]}<br>Current Return: %{customdata[2]}<br>Direction: %{customdata[3]}<extra></extra>",
+      };
+    })
+    .filter(Boolean);
+  const targetLineTraces = latestPriceDate
+    ? stockReturns
+        .filter((row) => row.recommend_date && finiteNumber(row.target_price) !== null)
+        .map((row) => {
+          const firm = row.organization || "Unknown";
+          const color = firmContext.colorMap[firm] || "#8d93b8";
+          return {
+            type: "scatter",
+            mode: "lines",
+            name: `${firm} target`,
+            legendgroup: firm,
+            showlegend: false,
+            x: [row.recommend_date, latestPriceDate],
+            y: [finiteNumber(row.target_price), finiteNumber(row.target_price)],
+            text: [row.analyst_recommendation, row.analyst_recommendation],
+            customdata: [
+              [firm, formatDate(row.recommend_date), formatMoney(row.target_price), formatMoney(row.recommended_price), formatPct(row.potential_returns)],
+              [firm, formatDate(row.recommend_date), formatMoney(row.target_price), formatMoney(row.recommended_price), formatPct(row.potential_returns)],
+            ],
+            line: { color, width: 1.5, dash: "dash" },
+            opacity: 0.75,
+            hovertemplate:
+              "Firm: %{customdata[0]}<br>Call: %{text}<br>Reco Date: %{customdata[1]}<br>Entry: %{customdata[3]}<br>Target: %{customdata[2]}<br>Upside: %{customdata[4]}<extra></extra>",
+          };
+        })
+    : [];
+
+  return (
+    <PlotFrame
+      data={[priceTrace, ...targetLineTraces, ...recommendationTraces]}
+      layout={plotLayout({
+        height: 380,
+        margin: { l: 72, r: 18, t: 12, b: 58 },
+        xaxis: { ...AXIS_STYLE, title: { text: "Date", standoff: 12 }, automargin: true },
+        yaxis: { ...AXIS_STYLE, title: { text: "Close Price ₹", standoff: 14 }, automargin: true },
+        annotations: [
+          {
+            x: 0.99,
+            y: 1.08,
+            xref: "paper",
+            yref: "paper",
+            xanchor: "right",
+            yanchor: "bottom",
+            text: "Dashed lines = target price",
+            showarrow: false,
+            bgcolor: "rgba(18, 18, 26, 0.75)",
+            bordercolor: "#2a2a3e",
+            borderwidth: 1,
+            font: { size: 10, color: "#c8cbe0" },
+          },
+        ],
+        legend: { title: { text: "Firm" }, orientation: "h", y: -0.25 },
+      })}
+    />
+  );
+}
+
 function ScorecardPage({ scorecard, returns, firmContext }) {
   const [minCalls, setMinCalls] = useState(3);
   const columns = [
@@ -686,12 +784,39 @@ function TargetAnalysisPage({ targetHit, firmContext }) {
   );
 }
 
-function StockLookupPage({ returns, stocks }) {
+function StockLookupPage({ returns, stocks, firmContext }) {
   const [selectedStock, setSelectedStock] = useState(stocks[0]?.stock_name || "");
+  const [priceRows, setPriceRows] = useState([]);
+  const [priceState, setPriceState] = useState("idle");
+  const stock = stocks.find((item) => item.stock_name === selectedStock);
   const stockReturns = returns.filter((row) => row.stock_name === selectedStock);
   const latest = stockReturns[0] || {};
   const avgReturn = stockReturns.reduce((sum, row) => sum + (Number(row.return_current) || 0), 0) / Math.max(stockReturns.length, 1);
   const avgTarget = stockReturns.reduce((sum, row) => sum + (Number(row.target_price) || 0), 0) / Math.max(stockReturns.length, 1);
+
+  useEffect(() => {
+    if (!stock?.symbol) {
+      setPriceRows([]);
+      setPriceState("missing");
+      return;
+    }
+    let active = true;
+    setPriceState("loading");
+    fetchJson(`/data/price-history/${stock.symbol}.json`)
+      .then((rows) => {
+        if (!active) return;
+        setPriceRows(rows);
+        setPriceState("ready");
+      })
+      .catch(() => {
+        if (!active) return;
+        setPriceRows([]);
+        setPriceState("missing");
+      });
+    return () => {
+      active = false;
+    };
+  }, [stock?.symbol]);
 
   return (
     <>
@@ -709,6 +834,12 @@ function StockLookupPage({ returns, stocks }) {
             <MetricCard label="Avg Target Price" value={`₹${formatNum(avgTarget, 0)}`} />
             <MetricCard label="Firms Covering" value={new Set(stockReturns.map((row) => row.organization)).size} />
           </div>
+          <SectionTitle>Price Chart with Analyst Overlays</SectionTitle>
+          {priceState === "loading" ? (
+            <div className="empty-state">Loading price history...</div>
+          ) : (
+            <StockPriceChart priceRows={priceRows} stockReturns={stockReturns} firmContext={firmContext} />
+          )}
           <SectionTitle>Recommendations</SectionTitle>
           <VirtualTable columns={stockColumns()} rows={stockReturns} height={360} />
         </>
@@ -849,7 +980,7 @@ function App() {
       {tab === "Scorecard" ? <ScorecardPage scorecard={scorecard} returns={returns} firmContext={firmContext} /> : null}
       {tab === "All Calls" ? <AllCallsPage returns={returns} firmContext={firmContext} /> : null}
       {tab === "Target Analysis" ? <TargetAnalysisPage targetHit={targetHit} firmContext={firmContext} /> : null}
-      {tab === "Stock Lookup" ? <StockLookupPage returns={returns} stocks={stocks} /> : null}
+      {tab === "Stock Lookup" ? <StockLookupPage returns={returns} stocks={stocks} firmContext={firmContext} /> : null}
       <footer>DATA REFRESHED DAILY - NSE EQUITY - FOR INFORMATIONAL USE ONLY</footer>
     </main>
   );
