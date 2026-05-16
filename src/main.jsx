@@ -116,16 +116,15 @@ function plotLayout(layout) {
 
 function useDashboardData() {
   const [state, setState] = useState({ status: "loading", error: null, data: null });
-  const base = import.meta.env.BASE_URL;
 
   useEffect(() => {
     let active = true;
     Promise.all([
-      fetchJson(`${base}data/scorecard.json`),
-      fetchJson(`${base}data/returns.json`),
-      fetchJson(`${base}data/target-hit.json`),
-      fetchJson(`${base}data/stocks.json`),
-      fetchJson(`${base}data/manifest.json`),
+      fetchJson(`data/scorecard.json`),
+      fetchJson(`data/returns.json`),
+      fetchJson(`data/target-hit.json`),
+      fetchJson(`data/stocks.json`),
+      fetchJson(`data/manifest.json`),
     ])
       .then(([scorecard, returns, targetHit, stocks, manifest]) => {
         if (!active) return;
@@ -822,8 +821,7 @@ function StockLookupPage({ returns, stocks, firmContext }) {
     }
     let active = true;
     setPriceState("loading");
-    const base = import.meta.env.BASE_URL;
-    fetchJson(`${base}data/price-history/${stock.symbol}.json`)
+    fetchJson(`data/price-history/${stock.symbol}.json`)
       .then((rows) => {
         if (!active) return;
         setPriceRows(rows);
