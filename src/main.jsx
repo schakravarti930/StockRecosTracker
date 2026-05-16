@@ -163,15 +163,16 @@ function VirtualTable({ columns, rows, height = 460, rowHeight = 38 }) {
   const visibleRows = rows.slice(start, start + visibleCount);
   const topPad = start * rowHeight;
   const totalHeight = rows.length * rowHeight;
+  const gridCols = columns.map((c) => c.width || "1fr").join(" ");
 
   return (
     <div className="table-shell">
-      <div className="table-head" style={{ gridTemplateColumns: columns.map((c) => c.width || "1fr").join(" ") }}>
-        {columns.map((column) => (
-          <div key={column.key}>{column.label}</div>
-        ))}
-      </div>
       <div className="table-scroll" style={{ height }} onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}>
+        <div className="table-head" style={{ gridTemplateColumns: gridCols }}>
+          {columns.map((column) => (
+            <div key={column.key}>{column.label}</div>
+          ))}
+        </div>
         <div style={{ height: totalHeight, position: "relative" }}>
           <div style={{ transform: `translateY(${topPad}px)` }}>
             {visibleRows.map((row, idx) => (
@@ -180,7 +181,7 @@ function VirtualTable({ columns, rows, height = 460, rowHeight = 38 }) {
                 key={`${start + idx}-${row.rec_id || row.stock_name || row.organization || idx}`}
                 style={{
                   height: rowHeight,
-                  gridTemplateColumns: columns.map((c) => c.width || "1fr").join(" "),
+                  gridTemplateColumns: gridCols,
                 }}
               >
                 {columns.map((column) => (
@@ -248,14 +249,14 @@ function HitRateRankingChart({ scorecard }) {
           text: rows.map((row) => formatPlainPct(row.hit_rate_pct)),
           textposition: "outside",
           textfont: { size: 11 },
-          hovertemplate: "%{y}<br>Hit Rate: %{x:.1f}%<extra></extra>",
+          hovertemplate: "%{y}<br>Dir. Accuracy: %{x:.1f}%<extra></extra>",
         },
       ]}
       layout={plotLayout({
         height: 380,
-        margin: { l: 10, r: 60, t: 10, b: 10 },
+        margin: { l: 160, r: 60, t: 10, b: 10 },
         xaxis: { ...AXIS_STYLE, range: [0, 110], showgrid: false, showticklabels: false },
-        yaxis: { ...AXIS_STYLE, showgrid: false, automargin: true },
+        yaxis: { ...AXIS_STYLE, showgrid: false, automargin: true, tickfont: { size: 11 } },
         showlegend: false,
       })}
     />
@@ -287,11 +288,11 @@ function ReturnDistributionChart({ returns, scorecard, firmContext, minCalls }) 
     <PlotFrame
       data={data}
       layout={plotLayout({
-        height: 380,
-        margin: { l: 10, r: 10, t: 10, b: 60 },
+        height: 600,
+        margin: { l: 80, r: 10, t: 10, b: 60 },
         showlegend: false,
         xaxis: { ...AXIS_STYLE, tickangle: -30, categoryorder: "array", categoryarray: firmContext.firms, automargin: true },
-        yaxis: { ...AXIS_STYLE, title: "Return (%)" },
+        yaxis: { ...AXIS_STYLE, title: { text: "% Returns", standoff: 14 }, automargin: true },
         shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0, line: { color: "#3a3a5e", width: 1, dash: "dot" } }],
       })}
     />
@@ -466,9 +467,9 @@ function PromisedVsActualChart({ rows, firmContext }) {
       layout={plotLayout({
         title: "Promised vs Actual Return",
         height: 420,
-        margin: { l: 10, r: 10, t: 56, b: 36 },
-        xaxis: { ...AXIS_STYLE, range: [xLo, xHi], title: "Potential Return % (at recommendation)" },
-        yaxis: { ...AXIS_STYLE, range: [yLo, yHi], title: "Actual Return % (current)" },
+        margin: { l: 80, r: 10, t: 56, b: 70 },
+        xaxis: { ...AXIS_STYLE, range: [xLo, xHi], title: { text: "% Target Returns", standoff: 14 }, automargin: true },
+        yaxis: { ...AXIS_STYLE, range: [yLo, yHi], title: { text: "% Actual Returns", standoff: 14 }, automargin: true },
         shapes,
         annotations,
         legend: { title: { text: "Firm" }, orientation: "v", yanchor: "top", y: 1, xanchor: "left", x: 1.02, traceorder: "normal" },
@@ -477,68 +478,72 @@ function PromisedVsActualChart({ rows, firmContext }) {
   );
 }
 
-function TargetScatterChart({ targetHit }) {
-  const rows = targetHit
-    .map((row) => ({
-      ...row,
-      target_hit_label: Number(row.target_hit) === 1 ? "Hit" : "Miss",
-      x: finiteNumber(row.target_upside_pct),
-      y: finiteNumber(row.max_return_achieved),
-    }))
-    .filter((row) => row.x !== null && row.y !== null);
-  const values = rows.flatMap((row) => [row.x, row.y]);
-  let axisMin = -10;
-  let axisMax = 40;
-  if (values.length) {
-    const rawMin = Math.min(...values);
-    const rawMax = Math.max(...values);
-    const span = Math.max(rawMax - rawMin, 1);
-    const pad = Math.max(span * 0.08, 2);
-    axisMin = rawMin - pad;
-    axisMax = rawMax + pad;
-  }
-  const lineSpan = axisMax - axisMin;
-  const lineLabelX = Math.max(Math.min(axisMax - lineSpan * 0.06, axisMax - 0.5), axisMin + lineSpan * 0.6);
-  const groups = [
-    { label: "Hit", color: "#00d4aa", symbol: "circle" },
-    { label: "Miss", color: "#ff5577", symbol: "x" },
+function TargetHitRateByUpsideChart({ targetHit }) {
+  const brackets = [
+    { label: "<0%", min: -Infinity, max: 0 },
+    { label: "0-10%", min: 0, max: 10 },
+    { label: "10-20%", min: 10, max: 20 },
+    { label: "20-30%", min: 20, max: 30 },
+    { label: "30%+", min: 30, max: Infinity },
   ];
+
+  const stats = brackets.map((b) => ({ ...b, total: 0, hits: 0 }));
+
+  targetHit.forEach((row) => {
+    const upside = finiteNumber(row.target_upside_pct);
+    if (upside === null) return;
+    const isHit = Number(row.target_hit) === 1;
+    for (const b of stats) {
+      if (upside > b.min && upside <= b.max) {
+        b.total++;
+        if (isHit) b.hits++;
+        break;
+      } else if (b.label === "<0%" && upside <= 0) {
+        b.total++;
+        if (isHit) b.hits++;
+        break;
+      }
+    }
+  });
+
+  const validStats = stats.filter((b) => b.total > 0);
+  const xValues = validStats.map((b) => b.label);
+  const yValues = validStats.map((b) => (b.hits / b.total) * 100);
+  const textValues = validStats.map((b) => {
+    const pct = (b.hits / b.total) * 100;
+    return `${b.hits} / ${b.total} (${pct.toFixed(1)}%)`;
+  });
+
   return (
     <PlotFrame
-      data={groups.map((group) => {
-        const groupRows = rows.filter((row) => row.target_hit_label === group.label);
-        return {
-          type: "scatter",
-          mode: "markers",
-          name: group.label,
-          x: groupRows.map((row) => row.x),
-          y: groupRows.map((row) => row.y),
-          text: groupRows.map((row) => row.stock_name),
-          customdata: groupRows.map((row) => [row.organization, formatDate(row.recommend_date), row.target_hit_label]),
-          marker: { color: group.color, symbol: group.symbol, size: 8, opacity: 0.88, line: { width: 0.5, color: "#0a0a0f" } },
-          hovertemplate:
-            "Stock: %{text}<br>Firm: %{customdata[0]}<br>Date: %{customdata[1]}<br>Outcome: %{customdata[2]}<br>Target Upside: %{x:.1f}%<br>Max Return Achieved: %{y:.1f}%<extra></extra>",
-        };
-      })}
+      data={[
+        {
+          type: "bar",
+          x: xValues,
+          y: yValues,
+          text: textValues,
+          textposition: "outside",
+          cliponaxis: false,
+          textfont: { size: 10, color: "#e8e8f0" },
+          marker: {
+            color: yValues,
+            colorscale: [
+              [0, "#ff5577"],
+              [0.5, "#ffb400"],
+              [1, "#00d4aa"],
+            ],
+            cmin: 0,
+            cmax: 100,
+          },
+          hovertemplate: "Upside: %{x}<br>Hit Rate: %{y:.1f}%<br>%{text}<extra></extra>",
+        },
+      ]}
       layout={plotLayout({
         height: 360,
-        margin: { l: 74, r: 18, t: 30, b: 58 },
-        xaxis: { ...AXIS_STYLE, range: [axisMin, axisMax], title: { text: "Target Upside %", standoff: 12 }, automargin: true },
-        yaxis: {
-          ...AXIS_STYLE,
-          range: [axisMin, axisMax],
-          title: { text: "Max Return Achieved %", standoff: 14 },
-          scaleanchor: "x",
-          scaleratio: 1,
-          automargin: true,
-        },
-        shapes: [{ type: "line", x0: axisMin, y0: axisMin, x1: axisMax, y1: axisMax, line: { color: "#3a3a5e", dash: "dot", width: 1 } }],
-        annotations: [
-          { x: lineLabelX, y: lineLabelX, text: "max return = target upside", showarrow: false, textangle: 35, font: { size: 11, color: "#8d93b8" }, bgcolor: "rgba(18, 18, 26, 0.7)" },
-          { x: 0.02, y: 0.99, xref: "paper", yref: "paper", text: "Above line: Exceeded target", showarrow: false, align: "left", xanchor: "left", yanchor: "top", font: { size: 10, color: "#c8cbe0" }, bgcolor: "rgba(18, 18, 26, 0.65)", bordercolor: "#3a3a5e", borderwidth: 1, borderpad: 4 },
-          { x: 0.98, y: 0.03, xref: "paper", yref: "paper", text: "Below line: Missed target", showarrow: false, align: "right", xanchor: "right", yanchor: "bottom", font: { size: 10, color: "#c8cbe0" }, bgcolor: "rgba(18, 18, 26, 0.65)", bordercolor: "#3a3a5e", borderwidth: 1, borderpad: 4 },
-        ],
-        legend: { title: { text: "Outcome" }, orientation: "h", y: -0.15 },
+        margin: { l: 60, r: 18, t: 40, b: 58 },
+        xaxis: { ...AXIS_STYLE, title: { text: "Promised Upside Bracket", standoff: 12 }, automargin: true },
+        yaxis: { ...AXIS_STYLE, title: { text: "Hit Rate (%)", standoff: 14 }, range: [0, 115], automargin: true },
+        showlegend: false,
       })}
     />
   );
@@ -566,10 +571,10 @@ function TargetHitStackedChart({ targetHit }) {
       layout={plotLayout({
         barmode: "stack",
         height: 360,
-        margin: { l: 10, r: 10, t: 10, b: 80 },
+        margin: { l: 40, r: 10, t: 40, b: 80 },
         xaxis: { ...AXIS_STYLE, tickangle: -30, automargin: true },
-        yaxis: { ...AXIS_STYLE },
-        legend: { orientation: "h", y: -0.35 },
+        yaxis: { ...AXIS_STYLE, automargin: true },
+        legend: { orientation: "h", y: 1.15, x: 1, xanchor: "right", yanchor: "bottom" },
       })}
     />
   );
@@ -678,7 +683,7 @@ function StockPriceChart({ priceRows, stockReturns, firmContext }) {
       data={[priceTrace, ...targetLineTraces, ...recommendationTraces]}
       layout={plotLayout({
         height: 380,
-        margin: { l: 72, r: 18, t: 12, b: 58 },
+        margin: { l: 72, r: 18, t: 36, b: 58 },
         xaxis: { ...AXIS_STYLE, title: { text: "Date", standoff: 12 }, automargin: true },
         yaxis: { ...AXIS_STYLE, title: { text: "Close Price ₹", standoff: 14 }, automargin: true },
         annotations: [
@@ -689,7 +694,7 @@ function StockPriceChart({ priceRows, stockReturns, firmContext }) {
             yref: "paper",
             xanchor: "right",
             yanchor: "bottom",
-            text: "Dashed lines = target price",
+            text: "Dashed lines = target price (colored by firm)",
             showarrow: false,
             bgcolor: "rgba(18, 18, 26, 0.75)",
             bordercolor: "#2a2a3e",
@@ -704,17 +709,14 @@ function StockPriceChart({ priceRows, stockReturns, firmContext }) {
 }
 
 function ScorecardPage({ scorecard, returns, firmContext }) {
-  const [minCalls, setMinCalls] = useState(3);
   const columns = [
     { key: "organization", label: "Firm", width: "1.7fr" },
     { key: "total_calls", label: "Calls", width: "0.55fr" },
     { key: "earliest_call", label: "Since", render: formatDate },
-    { key: "hit_rate_pct", label: "Hit Rate", render: formatPct, className: toneClass },
-    { key: "avg_return_30d", label: "Avg 30d", render: formatPct, className: toneClass },
-    { key: "avg_return_current", label: "Avg Current", render: formatPct, className: toneClass },
+    { key: "hit_rate_pct", label: "Dir. Accuracy", width: "0.8fr", render: formatPct, className: toneClass },
+    { key: "avg_return_current", label: "Avg Current", width: "0.9fr", render: formatPct, className: toneClass },
     { key: "best_call_current", label: "Best", render: formatPct, className: toneClass },
     { key: "worst_call_current", label: "Worst", render: formatPct, className: toneClass },
-    { key: "target_hit_rate_pct", label: "Target Hit%", render: formatPct },
     { key: "stdev_return_current", label: "Stdev", render: formatPct },
   ];
   return (
@@ -725,13 +727,18 @@ function ScorecardPage({ scorecard, returns, firmContext }) {
           <VirtualTable columns={columns} rows={scorecard} height={420} />
         </div>
         <div>
-          <SectionTitle>Hit Rate Ranking</SectionTitle>
+          <SectionTitle>Directional Accuracy Ranking</SectionTitle>
+          <div className="metric-subtext" style={{ marginBottom: "14px", marginTop: "-4px", lineHeight: "1.4" }}>
+            Ranks firms by the percentage of their recommendations that are currently tracking in a profitable direction.
+          </div>
           <HitRateRankingChart scorecard={scorecard} />
         </div>
       </div>
       <SectionTitle>Return Distribution by Firm</SectionTitle>
-      <RangeField label="Minimum calls to include firm" min={1} max={20} value={minCalls} onChange={setMinCalls} />
-      <ReturnDistributionChart returns={returns} scorecard={scorecard} firmContext={firmContext} minCalls={minCalls} />
+      <div className="metric-subtext" style={{ marginBottom: "14px", marginTop: "-4px", lineHeight: "1.4" }}>
+        Visualizes the spread of current returns for each firm's active recommendations. Highlights best and worst calls, along with the overall variance in performance.
+      </div>
+      <ReturnDistributionChart returns={returns} scorecard={scorecard} firmContext={firmContext} minCalls={3} />
     </>
   );
 }
@@ -768,15 +775,24 @@ function TargetAnalysisPage({ targetHit, firmContext }) {
     <>
       <div className="two-col">
         <div>
-          <SectionTitle>Target Upside vs Max Return Achieved</SectionTitle>
-          <TargetScatterChart targetHit={targetHit} />
+          <SectionTitle>Target Hit Rate by Upside Bracket</SectionTitle>
+          <div className="metric-subtext" style={{ marginBottom: "14px", marginTop: "-4px", lineHeight: "1.4" }}>
+            Analyzes the reliability of analyst targets by grouping them into promised upside buckets. Helps answer whether high-return predictions are hit less frequently than modest ones.
+          </div>
+          <TargetHitRateByUpsideChart targetHit={targetHit} />
         </div>
         <div>
           <SectionTitle>Target Hit Rate by Firm</SectionTitle>
+          <div className="metric-subtext" style={{ marginBottom: "14px", marginTop: "-4px", lineHeight: "1.4" }}>
+            Compares the absolute number of successful hits versus misses across different analyst firms.
+          </div>
           <TargetHitStackedChart targetHit={targetHit} />
         </div>
       </div>
       <SectionTitle>Days to Target (Hits Only)</SectionTitle>
+      <div className="metric-subtext" style={{ marginBottom: "14px", marginTop: "-4px", lineHeight: "1.4" }}>
+        Shows the distribution of time taken for successful recommendations to reach their promised target price. Helps identify typical realization timeframes for profitable calls.
+      </div>
       <DaysToTargetHistogram targetHit={targetHit} firmContext={firmContext} />
       <SectionTitle>All Calls</SectionTitle>
       <VirtualTable columns={targetColumns()} rows={targetHit} height={460} />
