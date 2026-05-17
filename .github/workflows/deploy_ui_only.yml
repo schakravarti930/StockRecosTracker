@@ -27,8 +27,18 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p old_dist
-          # Download the 'github-pages' artifact from the most recent successful run of the data workflow
-          gh run download --name github-pages --workflow "Deploy Static Dashboard" --repo ${{ github.repository }} --dir old_dist
+          # Find the ID of the most recent successful run of the data workflow
+          RUN_ID=$(gh run list --workflow "Deploy Static Dashboard" --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          
+          if [ -z "$RUN_ID" ]; then
+            echo "Error: No successful runs of 'Deploy Static Dashboard' found."
+            exit 1
+          fi
+          
+          echo "Found latest successful run ID: $RUN_ID"
+          
+          # Download the 'github-pages' artifact using the run ID
+          gh run download $RUN_ID --name github-pages --dir old_dist
           
           # The artifact is a tar file named artifact.tar.
           # We extract only the 'data' directory into 'public/'
