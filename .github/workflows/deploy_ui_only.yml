@@ -41,9 +41,23 @@ jobs:
           gh run download $RUN_ID --name github-pages --dir old_dist
           
           # The artifact is a tar file named artifact.tar.
-          # We extract only the 'data' directory into 'public/'
-          mkdir -p public/data
-          tar -xf old_dist/artifact.tar -C public/ data/
+          # We extract it to a temporary directory to see what's inside
+          mkdir -p temp_extract
+          tar -xf old_dist/artifact.tar -C temp_extract/
+          
+          # Move the data folder from the extracted files into public/
+          # We use a wildcard/find approach to be flexible with paths
+          DATA_DIR=$(find temp_extract -type d -name "data" | head -n 1)
+          if [ -n "$DATA_DIR" ]; then
+            echo "Moving data from $DATA_DIR to public/data"
+            mkdir -p public/data
+            cp -r "$DATA_DIR/." public/data/
+          else
+            echo "Error: Could not find 'data' directory in the previous deployment artifact."
+            echo "Contents of the artifact:"
+            ls -R temp_extract
+            exit 1
+          fi
           
           echo "Restored static data from previous deployment:"
           ls -R public/data
