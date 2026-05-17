@@ -35,14 +35,24 @@ const DEFAULT_SYMBOL = "circle";
 const COLORWAY = ["#00d4aa", "#ff5577", "#ffb400", "#7b9fff", "#c77dff", "#ff9e40"];
 const TABS = ["Scorecard", "All Calls", "Target Analysis", "Stock Lookup"];
 
-const PLOTLY_THEME = {
+const PLOTLY_THEME = (isMobile) => ({
   paper_bgcolor: "#0a0a0f",
   plot_bgcolor: "#0a0a0f",
-  font: { family: "DM Mono, monospace", color: "#e8e8f0", size: 12 },
+  font: { family: "DM Mono, monospace", color: "#e8e8f0", size: isMobile ? 10 : 12 },
   colorway: COLORWAY,
-};
+});
 const AXIS_STYLE = { gridcolor: "#1e1e2e", linecolor: "#2a2a3e", tickcolor: "#2a2a3e" };
 const PLOT_CONFIG = { displayModeBar: false, responsive: true };
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+  return isMobile;
+}
 
 function formatPct(value, digits = 1) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return "";
@@ -106,9 +116,20 @@ function buildSymbolMap(firms) {
   );
 }
 
-function plotLayout(layout) {
+function shortName(name, isMobile) {
+  if (!isMobile) return name;
+  return name
+    .replace("Limited", "")
+    .replace("Financial Services", "")
+    .replace("Securities", "Sec.")
+    .replace("Institutional Equities", "Inst.")
+    .replace("Prabhudas Lilladher", "P. Lilladher")
+    .trim();
+}
+
+function plotLayout(layout, isMobile) {
   return {
-    ...PLOTLY_THEME,
+    ...PLOTLY_THEME(isMobile),
     autosize: true,
     ...layout,
   };
@@ -164,10 +185,11 @@ function VirtualTable({ columns, rows, height = 460, rowHeight = 38 }) {
   const topPad = start * rowHeight;
   const totalHeight = rows.length * rowHeight;
   const gridCols = columns.map((c) => c.width || "1fr").join(" ");
+  const displayHeight = Math.min(height, Math.max(100, rows.length * rowHeight + 40));
 
   return (
     <div className="table-shell">
-      <div className="table-scroll" style={{ height }} onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}>
+      <div className="table-scroll" style={{ height: displayHeight }} onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}>
         <div className="table-head" style={{ gridTemplateColumns: gridCols }}>
           {columns.map((column) => (
             <div key={column.key}>{column.label}</div>
@@ -223,10 +245,21 @@ function DashboardMetrics({ returns, targetHit }) {
   );
 }
 
-function HitRateRankingChart({ scorecard }) {
+function HitRateRankingChart({ scorecard, isMobile }) {
   const rows = [...scorecard]
     .filter((row) => Number(row.total_calls) >= 3)
     .sort((a, b) => Number(a.hit_rate_pct) - Number(b.hit_rate_pct));
+
+  const shortName = (name) => {
+    if (!isMobile) return name;
+    return name
+      .replace("Limited", "")
+      .replace("Financial Services", "")
+      .replace("Securities", "Sec.")
+      .replace("Institutional Equities", "Inst.")
+      .replace("Prabhudas Lilladher", "P. Lilladher")
+      .trim();
+  };
 
   return (
     <PlotFrame
@@ -246,24 +279,32 @@ function HitRateRankingChart({ scorecard }) {
             cmin: 0,
             cmax: 100,
           },
-          text: rows.map((row) => formatPlainPct(row.hit_rate_pct)),
-          textposition: "outside",
-          textfont: { size: 11 },
+          text: rows.map((row) => (isMobile ? `${shortName(row.organization)} (${Math.round(row.hit_rate_pct)}%)` : formatPlainPct(row.hit_rate_pct))),
+          textposition: rows.map((row) => (isMobile && finiteNumber(row.hit_rate_pct) < 25 ? "outside" : isMobile ? "inside" : "outside")),
+          insidetextanchor: "start",
+          textfont: {
+            size: isMobile ? 10 : 11,
+            color: rows.map((row) => (isMobile && finiteNumber(row.hit_rate_pct) >= 25 ? "#000000" : "#ffffff")),
+            family: "DM Mono, monospace",
+          },
           hovertemplate: "%{y}<br>Dir. Accuracy: %{x:.1f}%<extra></extra>",
         },
       ]}
-      layout={plotLayout({
-        height: 380,
-        margin: { l: 160, r: 60, t: 10, b: 10 },
-        xaxis: { ...AXIS_STYLE, range: [0, 110], showgrid: false, showticklabels: false },
-        yaxis: { ...AXIS_STYLE, showgrid: false, automargin: true, tickfont: { size: 11 } },
-        showlegend: false,
-      })}
+      layout={plotLayout(
+        {
+          height: isMobile ? 420 : 380,
+          margin: { l: isMobile ? 10 : 160, r: isMobile ? 30 : 40, t: 10, b: 20 },
+          xaxis: { ...AXIS_STYLE, showgrid: false, showticklabels: false },
+          yaxis: { ...AXIS_STYLE, showgrid: false, automargin: true, showticklabels: !isMobile, tickfont: { size: isMobile ? 9 : 11 } },
+          showlegend: false,
+        },
+        isMobile
+      )}
     />
   );
 }
 
-function ReturnDistributionChart({ returns, scorecard, firmContext, minCalls }) {
+function ReturnDistributionChart({ returns, scorecard, firmContext, minCalls, isMobile }) {
   const included = new Set(scorecard.filter((row) => Number(row.total_calls) >= minCalls).map((row) => row.organization));
   const rows = returns.filter((row) => included.has(row.organization) && finiteNumber(row.return_current) !== null);
   const firms = firmContext.firms.filter((firm) => included.has(firm));
@@ -274,7 +315,7 @@ function ReturnDistributionChart({ returns, scorecard, firmContext, minCalls }) 
       return {
         type: "box",
         name: firm,
-        x: firmRows.map(() => firm),
+        x: firmRows.map(() => shortName(firm, isMobile)),
         y: firmRows.map((row) => finiteNumber(row.return_current)),
         text: firmRows.map((row) => row.stock_name),
         marker: { color: firmContext.colorMap[firm] },
@@ -287,19 +328,22 @@ function ReturnDistributionChart({ returns, scorecard, firmContext, minCalls }) 
   return (
     <PlotFrame
       data={data}
-      layout={plotLayout({
-        height: 600,
-        margin: { l: 80, r: 10, t: 10, b: 60 },
-        showlegend: false,
-        xaxis: { ...AXIS_STYLE, tickangle: -30, categoryorder: "array", categoryarray: firmContext.firms, automargin: true },
-        yaxis: { ...AXIS_STYLE, title: { text: "% Returns", standoff: 14 }, automargin: true },
-        shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0, line: { color: "#3a3a5e", width: 1, dash: "dot" } }],
-      })}
+      layout={plotLayout(
+        {
+          height: isMobile ? 500 : 600,
+          margin: { l: isMobile ? 10 : 80, r: 10, t: 10, b: isMobile ? 150 : 60 },
+          showlegend: false,
+          xaxis: { ...AXIS_STYLE, tickangle: -45, categoryorder: "array", categoryarray: firms.map(f => shortName(f, isMobile)), automargin: true, tickfont: { size: isMobile ? 9 : 11 } },
+          yaxis: { ...AXIS_STYLE, title: { text: "% Returns", standoff: isMobile ? 4 : 14 }, automargin: true, tickfont: { size: isMobile ? 9 : 11 } },
+          shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0, line: { color: "#3a3a5e", width: 1, dash: "dot" } }],
+        },
+        isMobile
+      )}
     />
   );
 }
 
-function PromisedVsActualChart({ rows, firmContext }) {
+function PromisedVsActualChart({ rows, firmContext, isMobile }) {
   const plotRows = rows
     .map((row) => {
       const potential = finiteNumber(row.potential_returns);
@@ -337,7 +381,7 @@ function PromisedVsActualChart({ rows, firmContext }) {
         color: firmContext.colorMap[firm],
         symbol: symbolMap[firm],
         opacity: 0.88,
-        size: 8,
+        size: isMobile ? 6 : 8,
         line: { width: 0.5, color: "#0a0a0f" },
       },
       hovertemplate:
@@ -385,25 +429,28 @@ function PromisedVsActualChart({ rows, firmContext }) {
     bgcolor: "rgba(18,18,26,0.75)",
     bordercolor: "#2a2a3e",
     borderwidth: 1,
-    font: { size: 10, color: "#cfd3e6" },
+    font: { size: isMobile ? 8 : 10, color: "#cfd3e6" },
   };
-  const annotations = [
-    zoneAnnotation("Sell (<0%)", xLo, Math.min(0, xHi)),
-    zoneAnnotation("Hold (0-15%)", Math.max(0, xLo), Math.min(15, xHi)),
-    zoneAnnotation("Buy (>=15%)", Math.max(15, xLo), xHi),
-    { x: 0.99, y: 0.01, xref: "paper", yref: "paper", xanchor: "right", yanchor: "bottom", text: "y = x (met promise)", ...annotationStyle },
-    {
-      x: 0.01,
-      y: 0.01,
-      xref: "paper",
-      yref: "paper",
-      xanchor: "left",
-      yanchor: "bottom",
-      text: "SELL zone:<br>Above line = weaker SELL call<br>(fell less than predicted)",
-      ...annotationStyle,
-    },
-  ].filter(Boolean);
-  if (diagVisible) {
+  const annotations = isMobile
+    ? []
+    : [
+        zoneAnnotation("Sell (<0%)", xLo, Math.min(0, xHi)),
+        zoneAnnotation("Hold (0-15%)", Math.max(0, xLo), Math.min(15, xHi)),
+        zoneAnnotation("Buy (>=15%)", Math.max(15, xLo), xHi),
+        { x: 0.99, y: 0.01, xref: "paper", yref: "paper", xanchor: "right", yanchor: "bottom", text: "y = x (met promise)", ...annotationStyle },
+        {
+          x: 0.01,
+          y: 0.01,
+          xref: "paper",
+          yref: "paper",
+          xanchor: "left",
+          yanchor: "bottom",
+          text: "SELL zone:<br>Above line = weaker SELL call<br>(fell less than predicted)",
+          ...annotationStyle,
+        },
+      ].filter(Boolean);
+
+  if (!isMobile && diagVisible) {
     const span = d1 - d0;
     const offset = Math.max(span * 0.03, 0.6);
     annotations.push(
@@ -455,7 +502,7 @@ function PromisedVsActualChart({ rows, firmContext }) {
       yref: "paper",
       xanchor: "center",
       yanchor: text.startsWith("Hold") && right - left < 4 ? "bottom" : "top",
-      text,
+      text: text,
       ...annotationStyle,
       font: { size: text.startsWith("Hold") && right - left < 4 ? 9 : 10, color: "#cfd3e6" },
     };
@@ -464,21 +511,25 @@ function PromisedVsActualChart({ rows, firmContext }) {
   return (
     <PlotFrame
       data={traces}
-      layout={plotLayout({
-        title: "Promised vs Actual Return",
-        height: 600,
-        margin: { l: 80, r: 10, t: 56, b: 70 },
-        xaxis: { ...AXIS_STYLE, range: [xLo, xHi], title: { text: "% Target Returns", standoff: 14 }, automargin: true },
-        yaxis: { ...AXIS_STYLE, range: [yLo, yHi], title: { text: "% Actual Returns", standoff: 14 }, automargin: true },
-        shapes,
-        annotations,
-        legend: { title: { text: "Firm" }, orientation: "v", yanchor: "top", y: 1, xanchor: "left", x: 1.02, traceorder: "normal" },
-      })}
+      layout={plotLayout(
+        {
+          title: isMobile ? "" : "Promised vs Actual Return",
+          height: isMobile ? 400 : 600,
+          margin: { l: isMobile ? 40 : 80, r: 10, t: isMobile ? 20 : 56, b: isMobile ? 40 : 120 },
+          xaxis: { ...AXIS_STYLE, range: [xLo, xHi], title: { text: "% Target Returns", standoff: 14 }, automargin: true, tickfont: { size: isMobile ? 9 : 11 } },
+          yaxis: { ...AXIS_STYLE, range: [yLo, yHi], title: { text: "% Actual Returns", standoff: 14 }, automargin: true, tickfont: { size: isMobile ? 9 : 11 } },
+          shapes,
+          annotations,
+          showlegend: !isMobile,
+          legend: { title: { text: "Firm" }, orientation: "v", yanchor: "top", y: 1, xanchor: "left", x: 1.02, traceorder: "normal" },
+        },
+        isMobile
+      )}
     />
   );
 }
 
-function TargetHitRateByUpsideChart({ targetHit }) {
+function TargetHitRateByUpsideChart({ targetHit, isMobile }) {
   const brackets = [
     { label: "<0%", min: -Infinity, max: 0 },
     { label: "0-10%", min: 0, max: 10 },
@@ -524,7 +575,7 @@ function TargetHitRateByUpsideChart({ targetHit }) {
           text: textValues,
           textposition: "outside",
           cliponaxis: false,
-          textfont: { size: 10, color: "#e8e8f0" },
+          textfont: { size: isMobile ? 8 : 10, color: "#e8e8f0" },
           marker: {
             color: yValues,
             colorscale: [
@@ -538,18 +589,21 @@ function TargetHitRateByUpsideChart({ targetHit }) {
           hovertemplate: "Upside: %{x}<br>Hit Rate: %{y:.1f}%<br>%{text}<extra></extra>",
         },
       ]}
-      layout={plotLayout({
-        height: 360,
-        margin: { l: 60, r: 18, t: 40, b: 58 },
-        xaxis: { ...AXIS_STYLE, title: { text: "Promised Upside Bracket", standoff: 12 }, automargin: true },
-        yaxis: { ...AXIS_STYLE, title: { text: "Hit Rate (%)", standoff: 14 }, range: [0, 115], automargin: true },
-        showlegend: false,
-      })}
+      layout={plotLayout(
+        {
+          height: isMobile ? 320 : 360,
+          margin: { l: isMobile ? 40 : 60, r: 18, t: 40, b: 58 },
+          xaxis: { ...AXIS_STYLE, title: { text: "Promised Upside Bracket", standoff: 12 }, automargin: true, tickfont: { size: isMobile ? 9 : 11 } },
+          yaxis: { ...AXIS_STYLE, title: { text: "Hit Rate (%)", standoff: 14 }, range: [0, 115], automargin: true, tickfont: { size: isMobile ? 9 : 11 } },
+          showlegend: false,
+        },
+        isMobile
+      )}
     />
   );
 }
 
-function TargetHitStackedChart({ targetHit }) {
+function TargetHitStackedChart({ targetHit, isMobile }) {
   const rows = Object.values(
     targetHit.reduce((acc, row) => {
       const firm = row.organization || "Unknown";
@@ -568,19 +622,24 @@ function TargetHitStackedChart({ targetHit }) {
         { type: "bar", name: "Hits", x: rows.map((row) => row.organization), y: rows.map((row) => row.hits), marker: { color: "#00d4aa" } },
         { type: "bar", name: "Misses", x: rows.map((row) => row.organization), y: rows.map((row) => row.total - row.hits), marker: { color: "#ff5577" } },
       ]}
-      layout={plotLayout({
-        barmode: "stack",
-        height: 360,
-        margin: { l: 40, r: 10, t: 40, b: 80 },
-        xaxis: { ...AXIS_STYLE, tickangle: -30, automargin: true },
-        yaxis: { ...AXIS_STYLE, automargin: true },
-        legend: { orientation: "h", y: 1.15, x: 1, xanchor: "right", yanchor: "bottom" },
-      })}
+      layout={plotLayout(
+        {
+          barmode: "stack",
+          height: isMobile ? 320 : 360,
+          margin: { l: isMobile ? 40 : 40, r: 10, t: 40, b: 80 },
+          xaxis: { ...AXIS_STYLE, tickangle: -45, automargin: true, tickfont: { size: isMobile ? 9 : 11 } },
+          yaxis: { ...AXIS_STYLE, automargin: true, tickfont: { size: isMobile ? 9 : 11 } },
+          legend: isMobile
+            ? { orientation: "h", y: 1.15, x: 0.5, xanchor: "center", yanchor: "bottom" }
+            : { orientation: "h", y: 1.15, x: 1, xanchor: "right", yanchor: "bottom" },
+        },
+        isMobile
+      )}
     />
   );
 }
 
-function DaysToTargetHistogram({ targetHit, firmContext }) {
+function DaysToTargetHistogram({ targetHit, firmContext, isMobile }) {
   const rows = targetHit.filter((row) => Number(row.target_hit) === 1 && finiteNumber(row.days_to_target) !== null);
   if (!rows.length) return <div className="empty-state">No targets hit yet - check back as data matures</div>;
   const firms = firmContext.firms.filter((firm) => rows.some((row) => row.organization === firm));
@@ -598,19 +657,23 @@ function DaysToTargetHistogram({ targetHit, firmContext }) {
           hovertemplate: "Days to Target: %{x}<br># Calls: %{y}<extra></extra>",
         };
       })}
-      layout={plotLayout({
-        height: 300,
-        margin: { l: 64, r: 16, t: 10, b: 58 },
-        xaxis: { ...AXIS_STYLE, title: { text: "Days to Target", standoff: 12 }, automargin: true },
-        yaxis: { ...AXIS_STYLE, title: { text: "# Calls", standoff: 12 }, automargin: true },
-        barmode: "stack",
-        bargap: 0.1,
-      })}
+      layout={plotLayout(
+        {
+          height: isMobile ? 250 : 300,
+          margin: { l: isMobile ? 40 : 64, r: 16, t: 10, b: 58 },
+          xaxis: { ...AXIS_STYLE, title: { text: "Days to Target", standoff: 12 }, automargin: true, tickfont: { size: isMobile ? 9 : 11 } },
+          yaxis: { ...AXIS_STYLE, title: { text: "# Calls", standoff: 12 }, automargin: true, tickfont: { size: isMobile ? 9 : 11 } },
+          barmode: "stack",
+          bargap: 0.1,
+          showlegend: !isMobile,
+        },
+        isMobile
+      )}
     />
   );
 }
 
-function StockPriceChart({ priceRows, stockReturns, firmContext }) {
+function StockPriceChart({ priceRows, stockReturns, firmContext, isMobile }) {
   const validPrices = priceRows.filter((row) => row?.[0] && finiteNumber(row?.[1]) !== null);
   if (!validPrices.length) return <div className="empty-state">No price history found for this stock.</div>;
 
@@ -642,7 +705,7 @@ function StockPriceChart({ priceRows, stockReturns, firmContext }) {
         marker: {
           color: firmContext.colorMap[firm],
           symbol: symbolMap[firm],
-          size: 10,
+          size: isMobile ? 8 : 10,
           opacity: 0.9,
           line: { width: 1, color: "#0a0a0f" },
         },
@@ -681,34 +744,39 @@ function StockPriceChart({ priceRows, stockReturns, firmContext }) {
   return (
     <PlotFrame
       data={[priceTrace, ...targetLineTraces, ...recommendationTraces]}
-      layout={plotLayout({
-        height: 380,
-        margin: { l: 72, r: 18, t: 36, b: 58 },
-        xaxis: { ...AXIS_STYLE, title: { text: "Date", standoff: 12 }, automargin: true },
-        yaxis: { ...AXIS_STYLE, title: { text: "Close Price ₹", standoff: 14 }, automargin: true },
-        annotations: [
-          {
-            x: 0.99,
-            y: 1.08,
-            xref: "paper",
-            yref: "paper",
-            xanchor: "right",
-            yanchor: "bottom",
-            text: "Dashed lines = target price (colored by firm)",
-            showarrow: false,
-            bgcolor: "rgba(18, 18, 26, 0.75)",
-            bordercolor: "#2a2a3e",
-            borderwidth: 1,
-            font: { size: 10, color: "#c8cbe0" },
-          },
-        ],
-        legend: { title: { text: "Firm" }, orientation: "h", y: -0.25 },
-      })}
+      layout={plotLayout(
+        {
+          height: isMobile ? 320 : 380,
+          margin: { l: isMobile ? 50 : 72, r: 18, t: 36, b: 58 },
+          xaxis: { ...AXIS_STYLE, title: { text: "Date", standoff: 12 }, automargin: true, tickfont: { size: isMobile ? 9 : 11 } },
+          yaxis: { ...AXIS_STYLE, title: { text: "Close Price ₹", standoff: 14 }, automargin: true, tickfont: { size: isMobile ? 9 : 11 } },
+          annotations: [
+            {
+              x: 0.99,
+              y: 1.08,
+              xref: "paper",
+              yref: "paper",
+              xanchor: "right",
+              yanchor: "bottom",
+              text: isMobile ? "Dashed = target" : "Dashed lines = target price (colored by firm)",
+              showarrow: false,
+              bgcolor: "rgba(18, 18, 26, 0.75)",
+              bordercolor: "#2a2a3e",
+              borderwidth: 1,
+              font: { size: isMobile ? 8 : 10, color: "#c8cbe0" },
+            },
+          ],
+          legend: isMobile
+            ? { orientation: "h", y: -0.25, x: 0.5, xanchor: "center" }
+            : { title: { text: "Firm" }, orientation: "h", y: -0.25 },
+        },
+        isMobile
+      )}
     />
   );
 }
 
-function ScorecardPage({ scorecard, returns, firmContext }) {
+function ScorecardPage({ scorecard, returns, firmContext, isMobile }) {
   const columns = [
     { key: "organization", label: "Firm", width: "1.7fr" },
     { key: "total_calls", label: "Calls", width: "0.55fr" },
@@ -731,19 +799,19 @@ function ScorecardPage({ scorecard, returns, firmContext }) {
           <div className="metric-subtext" style={{ marginBottom: "14px", marginTop: "-4px", lineHeight: "1.4" }}>
             Ranks firms by the percentage of their recommendations that are currently tracking in a profitable direction.
           </div>
-          <HitRateRankingChart scorecard={scorecard} />
+          <HitRateRankingChart scorecard={scorecard} isMobile={isMobile} />
         </div>
       </div>
       <SectionTitle>Return Distribution by Firm</SectionTitle>
       <div className="metric-subtext" style={{ marginBottom: "14px", marginTop: "-4px", lineHeight: "1.4" }}>
         Visualizes the spread of current returns for each firm's active recommendations. Highlights best and worst calls, along with the overall variance in performance.
       </div>
-      <ReturnDistributionChart returns={returns} scorecard={scorecard} firmContext={firmContext} minCalls={3} />
+      <ReturnDistributionChart returns={returns} scorecard={scorecard} firmContext={firmContext} minCalls={3} isMobile={isMobile} />
     </>
   );
 }
 
-function AllCallsPage({ returns, firmContext }) {
+function AllCallsPage({ returns, firmContext, isMobile }) {
   const [firm, setFirm] = useState("All");
   const [recommendation, setRecommendation] = useState("All");
   const [direction, setDirection] = useState("All");
@@ -767,13 +835,13 @@ function AllCallsPage({ returns, firmContext }) {
       <div className="metric-subtext" style={{ marginBottom: "14px", marginTop: "-4px", lineHeight: "1.4" }}>
         Scatter plot comparing the promised target return against the actual current return. Calls above the diagonal line have exceeded their target, while calls in the red zone are currently tracking at a loss.
       </div>
-      <PromisedVsActualChart rows={filtered} firmContext={firmContext} />
+      <PromisedVsActualChart rows={filtered} firmContext={firmContext} isMobile={isMobile} />
       <VirtualTable columns={allCallsColumns()} rows={filtered} height={500} />
     </>
   );
 }
 
-function TargetAnalysisPage({ targetHit, firmContext }) {
+function TargetAnalysisPage({ targetHit, firmContext, isMobile }) {
   return (
     <>
       <div className="two-col">
@@ -782,28 +850,28 @@ function TargetAnalysisPage({ targetHit, firmContext }) {
           <div className="metric-subtext" style={{ marginBottom: "14px", marginTop: "-4px", lineHeight: "1.4" }}>
             Analyzes the reliability of analyst targets by grouping them into promised upside buckets. Helps answer whether high-return predictions are hit less frequently than modest ones.
           </div>
-          <TargetHitRateByUpsideChart targetHit={targetHit} />
+          <TargetHitRateByUpsideChart targetHit={targetHit} isMobile={isMobile} />
         </div>
         <div>
           <SectionTitle>Target Hit Rate by Firm</SectionTitle>
           <div className="metric-subtext" style={{ marginBottom: "14px", marginTop: "-4px", lineHeight: "1.4" }}>
             Compares the absolute number of successful hits versus misses across different analyst firms.
           </div>
-          <TargetHitStackedChart targetHit={targetHit} />
+          <TargetHitStackedChart targetHit={targetHit} isMobile={isMobile} />
         </div>
       </div>
       <SectionTitle>Days to Target (Hits Only)</SectionTitle>
       <div className="metric-subtext" style={{ marginBottom: "14px", marginTop: "-4px", lineHeight: "1.4" }}>
         Shows the distribution of time taken for successful recommendations to reach their promised target price. Helps identify typical realization timeframes for profitable calls.
       </div>
-      <DaysToTargetHistogram targetHit={targetHit} firmContext={firmContext} />
+      <DaysToTargetHistogram targetHit={targetHit} firmContext={firmContext} isMobile={isMobile} />
       <SectionTitle>All Calls</SectionTitle>
       <VirtualTable columns={targetColumns()} rows={targetHit} height={460} />
     </>
   );
 }
 
-function StockLookupPage({ returns, stocks, firmContext }) {
+function StockLookupPage({ returns, stocks, firmContext, isMobile }) {
   const [selectedStock, setSelectedStock] = useState(stocks[0]?.stock_name || "");
   const [priceRows, setPriceRows] = useState([]);
   const [priceState, setPriceState] = useState("idle");
@@ -857,7 +925,7 @@ function StockLookupPage({ returns, stocks, firmContext }) {
           {priceState === "loading" ? (
             <div className="empty-state">Loading price history...</div>
           ) : (
-            <StockPriceChart priceRows={priceRows} stockReturns={stockReturns} firmContext={firmContext} />
+            <StockPriceChart priceRows={priceRows} stockReturns={stockReturns} firmContext={firmContext} isMobile={isMobile} />
           )}
           <SectionTitle>Recommendations</SectionTitle>
           <VirtualTable columns={stockColumns()} rows={stockReturns} height={360} />
@@ -958,6 +1026,7 @@ function clamp(value, low, high) {
 }
 
 function App() {
+  const isMobile = useIsMobile();
   const { status, error, data } = useDashboardData();
   const [tab, setTab] = useState(TABS[0]);
 
@@ -986,7 +1055,6 @@ function App() {
         <div className="refresh-note">Data generated {manifest.generated_at ? formatDate(manifest.generated_at) : ""}</div>
       </header>
       <DashboardMetrics returns={returns} targetHit={targetHit} />
-      <div className="warning-note">Data refreshes from static JSON generated after the market-close pipeline.</div>
       <nav className="tabs">
         {TABS.map((item) => (
           <button key={item} className={tab === item ? "active" : ""} onClick={() => setTab(item)}>
@@ -994,10 +1062,10 @@ function App() {
           </button>
         ))}
       </nav>
-      {tab === "Scorecard" ? <ScorecardPage scorecard={scorecard} returns={returns} firmContext={firmContext} /> : null}
-      {tab === "All Calls" ? <AllCallsPage returns={returns} firmContext={firmContext} /> : null}
-      {tab === "Target Analysis" ? <TargetAnalysisPage targetHit={targetHit} firmContext={firmContext} /> : null}
-      {tab === "Stock Lookup" ? <StockLookupPage returns={returns} stocks={stocks} firmContext={firmContext} /> : null}
+      {tab === "Scorecard" ? <ScorecardPage scorecard={scorecard} returns={returns} firmContext={firmContext} isMobile={isMobile} /> : null}
+      {tab === "All Calls" ? <AllCallsPage returns={returns} firmContext={firmContext} isMobile={isMobile} /> : null}
+      {tab === "Target Analysis" ? <TargetAnalysisPage targetHit={targetHit} firmContext={firmContext} isMobile={isMobile} /> : null}
+      {tab === "Stock Lookup" ? <StockLookupPage returns={returns} stocks={stocks} firmContext={firmContext} isMobile={isMobile} /> : null}
       <footer>DATA REFRESHED DAILY - NSE EQUITY - FOR INFORMATIONAL USE ONLY</footer>
     </main>
   );
