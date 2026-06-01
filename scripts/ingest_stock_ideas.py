@@ -14,7 +14,7 @@ api_url = "https://api.moneycontrol.com/mcapi/v1/broker-research/stock-ideas?sta
 
 from sqlalchemy import (
     Column, Integer, BigInteger, String, Date, DateTime,
-    DECIMAL, ForeignKey, create_engine
+    DECIMAL, ForeignKey, Text, create_engine
 )
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy import func
@@ -93,6 +93,19 @@ class RecommendationHistory(Base):
     )
 
 
+class RecommendationQuarantine(Base):
+    __tablename__ = "recommendations_quarantine"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    source_id = Column(BigInteger, nullable=True)      # original recommendation ID from API
+    raw_json = Column(Text)                             # full API payload for re-processing on approval
+    flag_reason = Column(String(1000))                  # semicolon-separated flag messages
+    flagged_at = Column(DateTime, default=datetime.utcnow)
+    status = Column(String(20), default="PENDING")      # PENDING / APPROVED / REJECTED
+    reviewed_at = Column(DateTime, nullable=True)
+    review_note = Column(String(500), nullable=True)
+
+
 from datetime import datetime
 
 def parse_date_safe(value, fmt=None, dayfirst=False):
@@ -135,6 +148,86 @@ def safe_float(val):
 
 def safe_str(val):
     return str(val) if val is not None else None
+
+
+# ─────────────────────────────────────────
+# SOFT VALIDATION — suspects go to quarantine
+# ─────────────────────────────────────────
+
+def check_soft_flags(item) -> list:
+    """Returns a list of human-readable flag reasons.
+    An empty list means the record is clean.
+    """
+    flags = []
+
+    rec_price    = safe_float(item.get("recommended_price"))
+    target_price = safe_float(item.get("target_price"))
+    potential_returns = safe_float(item.get("potential_returns_per"))
+    stock_name   = (item.get("stkname") or "").strip()
+    organization = (item.get("organization") or "").strip()
+    recommend_flag = item.get("recommend_flag", "")
+    exchange     = item.get("exchange", "")
+    cmp          = safe_float(item.get("cmp"))
+    current_returns = safe_float(item.get("current_returns"))
+
+    # 1. Missing stock name
+    if not stock_name:
+        flags.append("Missing stock_name")
+
+    # 2. Missing organization
+    if not organization:
+        flags.append("Missing organization")
+
+    # 3. Extreme potential returns
+    if potential_returns is not None and abs(potential_returns) > 75:
+        flags.append(f"Extreme potential_returns: {potential_returns:.1f}%")
+
+    # 4. Recommend date issues
+    recommend_date = parse_date_safe(item.get("recommend_date"))
+    if recommend_date is None:
+        flags.append("Missing or unparseable recommend_date")
+    else:
+        today = datetime.utcnow().date()
+        if recommend_date > today:
+            flags.append(f"recommend_date is in the future: {recommend_date}")
+        elif (today - recommend_date).days > 5 * 365:
+            flags.append(f"recommend_date is older than 5 years: {recommend_date}")
+
+    # 5. Implausible target vs entry price ratio
+    if rec_price and target_price and rec_price > 0:
+        ratio = target_price / rec_price
+        if ratio > 2.0:
+            flags.append(f"target/entry ratio too high: {ratio:.2f}x (>{200}%)")
+        elif ratio < 0.5:
+            flags.append(f"target/entry ratio too low: {ratio:.2f}x (<-50%)")
+
+    # 6. Directionally inconsistent signal
+    if rec_price and target_price:
+        if recommend_flag == "B" and target_price < rec_price:
+            flags.append("BUY call but target_price < recommended_price")
+        elif recommend_flag == "S" and target_price > rec_price:
+            flags.append("SELL call but target_price > recommended_price")
+
+    # 7. Unexpected exchange
+    if exchange and exchange not in ("N", "B"):
+        flags.append(f"Unexpected exchange value: '{exchange}'")
+
+    # 8. target_price_date before recommend_date
+    target_price_date = parse_date_safe(item.get("target_price_date"))
+    if recommend_date and target_price_date and target_price_date < recommend_date:
+        flags.append(f"target_price_date ({target_price_date}) is before recommend_date ({recommend_date})")
+
+    # 9. Extreme current returns
+    if current_returns is not None and abs(current_returns) > 500:
+        flags.append(f"Extreme current_returns: {current_returns:.1f}%")
+
+    # 10. CMP wildly different from entry price
+    if cmp and rec_price and rec_price > 0:
+        cmp_diff_pct = abs(cmp - rec_price) / rec_price * 100
+        if cmp_diff_pct > 50:
+            flags.append(f"CMP differs from entry price by {cmp_diff_pct:.1f}%")
+
+    return flags
 
 import os
 import urllib.parse
@@ -279,8 +372,15 @@ def ingest_stock_ideas():
         start = 0
         page_size = 9
         inserted = 0
+        quarantined = 0
         stop_fetching = False
         count = 0
+
+        # Pre-load quarantined source IDs to avoid re-quarantining on every run
+        quarantined_ids = set(
+            row[0] for row in session.query(RecommendationQuarantine.source_id).all()
+            if row[0] is not None
+        )
 
         while not stop_fetching:
             # 🔹 2. Call paginated API (guarded)
@@ -305,14 +405,33 @@ def ingest_stock_ideas():
             for item in records:
                 try:
                     item_id = int(item["id"])
-                    
-                    exists = session.get(Recommendation, int(item["id"]))
 
-                    # 🔹 3. Stop condition
+                    # 🔹 3a. Skip if already in recommendations
+                    exists = session.get(Recommendation, item_id)
                     if exists:
                         count = count + 1
                         continue
 
+                    # 🔹 3b. Skip if already quarantined (any status)
+                    if item_id in quarantined_ids:
+                        continue
+
+                    # 🔹 3c. Soft validation — route suspect records to quarantine
+                    flags = check_soft_flags(item)
+                    if flags:
+                        flag_reason = "; ".join(flags)
+                        logging.warning(f"Quarantining ID={item_id}: {flag_reason}")
+                        q = RecommendationQuarantine(
+                            source_id=item_id,
+                            raw_json=json.dumps(item),
+                            flag_reason=flag_reason
+                        )
+                        session.add(q)
+                        quarantined_ids.add(item_id)
+                        quarantined += 1
+                        continue
+
+                    # 🔹 3d. Hard validation + insert
                     rec = map_to_recommendation(item)
                     session.add(rec)
                     inserted += 1
@@ -355,7 +474,7 @@ def ingest_stock_ideas():
                 stop_fetching = True
 
         session.commit()
-        logging.info(f"Inserted {inserted} new records")
+        logging.info(f"Inserted {inserted} new records | Quarantined {quarantined} suspect records")
 
     except Exception as e:
         # Catch anything unexpected
