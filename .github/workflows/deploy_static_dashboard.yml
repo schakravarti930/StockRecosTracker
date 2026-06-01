@@ -2,6 +2,15 @@ name: Deploy Static Dashboard
 
 on:
   workflow_dispatch:
+    inputs:
+      deploy_only:
+        description: "Deploy UI only (skip DB export, use existing public/data JSON)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
   schedule:
     # Run after the existing weekday ingestion workflow.
     - cron: "30 11 * * 1-5"
@@ -24,12 +33,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Python
+        if: ${{ github.event.inputs.deploy_only != 'true' }}
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
 
       - name: Install ODBC Drivers
+        if: ${{ github.event.inputs.deploy_only != 'true' }}
         run: |
           curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --yes --no-tty --dearmor -o /usr/share/keyrings/microsoft-prod.gpg
           sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list /etc/apt/sources.list.d/microsoft-prod.sources
@@ -38,20 +49,24 @@ jobs:
           sudo ACCEPT_EULA=Y apt-get install -y msodbcsql17 unixodbc-dev
 
       - name: Install Python dependencies
+        if: ${{ github.event.inputs.deploy_only != 'true' }}
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Azure login
+        if: ${{ github.event.inputs.deploy_only != 'true' }}
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Get GitHub Actions Runner IP
+        if: ${{ github.event.inputs.deploy_only != 'true' }}
         id: ip
         run: echo "ipv4=$(curl -s https://api.ipify.org)" >> "$GITHUB_OUTPUT"
 
       - name: Whitelist Runner IP in Azure SQL
+        if: ${{ github.event.inputs.deploy_only != 'true' }}
         uses: azure/CLI@v2
         with:
           azcliversion: latest
@@ -65,12 +80,25 @@ jobs:
               --end-ip-address ${{ steps.ip.outputs.ipv4 }}
 
       - name: Export static dashboard data
+        if: ${{ github.event.inputs.deploy_only != 'true' }}
         env:
           AZURE_SQL_SERVER: ${{ secrets.AZURE_SQL_SERVER }}
           AZURE_SQL_DATABASE: ${{ secrets.AZURE_SQL_DATABASE }}
           AZURE_SQL_USERNAME: ${{ secrets.AZURE_SQL_USERNAME }}
           AZURE_SQL_PASSWORD: ${{ secrets.AZURE_SQL_PASSWORD }}
         run: python scripts/export_dashboard_data.py
+
+      - name: Remove Runner IP from Azure SQL
+        if: ${{ always() && github.event.inputs.deploy_only != 'true' }}
+        uses: azure/CLI@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            SERVER_NAME=$(echo "${{ secrets.AZURE_SQL_SERVER }}" | cut -d'.' -f1)
+            az sql server firewall-rule delete \
+              --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+              --server "$SERVER_NAME" \
+              --name github-actions-dashboard-${{ github.run_id }}
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -83,18 +111,6 @@ jobs:
 
       - name: Build dashboard
         run: npm run build
-
-      - name: Remove Runner IP from Azure SQL
-        if: always()
-        uses: azure/CLI@v2
-        with:
-          azcliversion: latest
-          inlineScript: |
-            SERVER_NAME=$(echo "${{ secrets.AZURE_SQL_SERVER }}" | cut -d'.' -f1)
-            az sql server firewall-rule delete \
-              --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-              --server "$SERVER_NAME" \
-              --name github-actions-dashboard-${{ github.run_id }}
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
